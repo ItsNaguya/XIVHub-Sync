@@ -1,0 +1,19 @@
+[{
+  "LoadRequiredState": 0,
+  "ApplicableVersion": "any",
+  "DownloadLinkInstall": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "Punchline": "Because clicking sync is so 2023.",
+  "DownloadLinkUpdate": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "Description": "Syncs your character data to XIV Hub locally in real time.",
+  "LoadSync": false,
+  "LoadPriority": 0,
+  "DalamudApiLevel": 15,
+  "RepoUrl": "https://github.com/ItsNaguya/XIVHub-Sync",
+  "DownloadLinkTesting": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "Author": "Naguya",
+  "InternalName": "XIVHubCompanion",
+  "DownloadCount": 0,
+  "LastUpdate": 1784844156,
+  "AssemblyVersion": "1.0.0.0",
+  "Name": "XIV Hub Companion"
+}]
