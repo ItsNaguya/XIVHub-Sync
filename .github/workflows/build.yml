@@ -51,7 +51,7 @@ jobs:
               LoadSync = $false
               LoadPriority = 0
           }
-          @($manifest) | ConvertTo-Json -Depth 10 | Out-File "pluginmaster.json"
+          ConvertTo-Json -InputObject @($manifest) -Depth 10 | Set-Content -Encoding utf8 "pluginmaster.json"
 
       - name: Publish to repo branch
         run: |
