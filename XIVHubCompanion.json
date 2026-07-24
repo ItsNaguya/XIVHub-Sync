@@ -2,7 +2,7 @@
   "Author": "Naguya",
   "Name": "XIV Hub Companion",
   "InternalName": "XIVHubCompanion",
-  "AssemblyVersion": "1.0.2.0",
+  "AssemblyVersion": "1.0.3.0",
   "Description": "Syncs your character data to XIV Hub locally in real time.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
@@ -10,6 +10,6 @@
   "LoadSync": false,
   "LoadPriority": 0,
   "Punchline": "Because clicking sync is so 2023.",
-  "IconUrl": "https://xiv.naguya.tech/icon.png",
+  "IconUrl": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/main/images/icon.png",
   "Tags": ["xivhub", "sync", "utility", "companion"]
 }
