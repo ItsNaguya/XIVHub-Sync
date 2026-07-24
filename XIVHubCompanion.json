@@ -2,7 +2,7 @@
   "Author": "Naguya",
   "Name": "XIV Hub Companion",
   "InternalName": "XIVHubCompanion",
-  "AssemblyVersion": "1.0.1.0",
+  "AssemblyVersion": "1.0.2.0",
   "Description": "Syncs your character data to XIV Hub locally in real time.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
