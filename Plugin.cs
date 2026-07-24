@@ -30,6 +30,11 @@ namespace XIVHubCompanion
         private int _lastLevel = 0;
         private DateTime _lastSync = DateTime.MinValue;
 
+        private static readonly InventoryType[] BagTypes = { InventoryType.Inventory1, InventoryType.Inventory2, InventoryType.Inventory3, InventoryType.Inventory4 };
+        private static readonly InventoryType[] SaddlebagTypes = { InventoryType.SaddleBag1, InventoryType.SaddleBag2, InventoryType.PremiumSaddleBag1, InventoryType.PremiumSaddleBag2 };
+        private static readonly InventoryType[] ArmouryTypes = { InventoryType.ArmoryMainHand, InventoryType.ArmoryOffHand, InventoryType.ArmoryHead, InventoryType.ArmoryBody, InventoryType.ArmoryHands, InventoryType.ArmoryWaist, InventoryType.ArmoryLegs, InventoryType.ArmoryFeets, InventoryType.ArmoryEar, InventoryType.ArmoryNeck, InventoryType.ArmoryWrist, InventoryType.ArmoryRings, InventoryType.ArmorySoulCrystal };
+        private static readonly InventoryType[] RetainerBagTypes = { InventoryType.RetainerPage1, InventoryType.RetainerPage2, InventoryType.RetainerPage3, InventoryType.RetainerPage4, InventoryType.RetainerPage5, InventoryType.RetainerPage6, InventoryType.RetainerPage7, InventoryType.RetainerCrystals };
+
         public Plugin(
             IDalamudPluginInterface pluginInterface,
             ICommandManager commandManager,
@@ -114,14 +119,84 @@ namespace XIVHubCompanion
             }
         }
 
+        private unsafe List<object> GetContainerItems(InventoryType type, int bagIndex = -1)
+        {
+            var list = new List<object>();
+            var manager = InventoryManager.Instance();
+            if (manager == null) return list;
+
+            var container = manager->GetInventoryContainer(type);
+            if (container == null) return list;
+
+            var itemSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+            for (int i = 0; i < container->Size; i++)
+            {
+                var slot = container->GetInventorySlot(i);
+                if (slot != null && slot->ItemId != 0 && slot->Quantity > 0)
+                {
+                    var itemRow = itemSheet.GetRow(slot->ItemId);
+                    bool isHq = (slot->Flags & InventoryItem.ItemFlags.HighQuality) != 0;
+                    list.Add(new {
+                        slot = i,
+                        containerId = bagIndex >= 0 ? (uint)bagIndex : (uint)type,
+                        itemId = slot->ItemId,
+                        quantity = slot->Quantity,
+                        hq = isHq,
+                        iconId = itemRow.Icon,
+                        name = itemRow.Name.ToString(),
+                        category = itemRow.ItemUICategory.RowId,
+                        uiCategorySort = itemRow.ItemSortCategory.RowId,
+                        uiCategoryOrderMajor = itemRow.ItemUICategory.Value.OrderMajor,
+                        uiCategoryOrderMinor = itemRow.ItemUICategory.Value.OrderMinor,
+                        ilvl = itemRow.LevelItem.RowId
+                    });
+                }
+            }
+            return list;
+        }
+
+        private unsafe List<object> GetMultipleContainers(InventoryType[] types, bool normalizeBagIndex = false)
+        {
+            var list = new List<object>();
+            for (int i = 0; i < types.Length; i++) {
+                list.AddRange(GetContainerItems(types[i], normalizeBagIndex ? i : -1));
+            }
+            return list;
+        }
+
+        private unsafe object GetActiveRetainerInventory()
+        {
+            var retainerManager = RetainerManager.Instance();
+            if (retainerManager == null || !retainerManager->IsReady) return null;
+
+            var active = retainerManager->GetActiveRetainer();
+            if (active == null || active->RetainerId == 0) return null;
+
+            var manager = InventoryManager.Instance();
+            if (manager == null) return null;
+
+            // We don't check IsLoaded since it might be unreliable. FFXIV will naturally zero out ItemIds if unloaded.
+            var inventoryItems = GetMultipleContainers(RetainerBagTypes, true);
+            if (inventoryItems.Count == 0) return null;
+
+            return new {
+                retainerId = active->RetainerId.ToString(),
+                name = active->NameString,
+                inventory = inventoryItems
+            };
+        }
+
         private unsafe void SyncData(Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter player)
         {
             try
             {
                 var gearList = new List<object>();
                 var invManager = InventoryManager.Instance();
+                long gil = 0;
+
                 if (invManager != null)
                 {
+                    gil = invManager->GetGil();
                     var container = invManager->GetInventoryContainer(InventoryType.EquippedItems);
                     if (container != null)
                     {
@@ -144,7 +219,6 @@ namespace XIVHubCompanion
                                         {
                                             var mRow = matSheet.GetRow(mId);
                                             try {
-                                                // Assuming Item array holds references
                                                 var mItemId = mRow.Item[grade].RowId;
                                                 var mItemRow = itemSheet.GetRow(mItemId);
                                                 var mValue = mRow.Value[grade];
@@ -208,16 +282,6 @@ namespace XIVHubCompanion
                         s["mp"] = attrs[8];
                         s["gp"] = attrs[10];
                         s["cp"] = attrs[11];
-                        s["ten"] = attrs[19];
-                        s["dh"] = attrs[22];
-                        s["crit"] = attrs[27];
-                        s["det"] = attrs[44];
-                        s["sks"] = attrs[45];
-                        s["sps"] = attrs[46];
-                        s["craft"] = attrs[70];
-                        s["control"] = attrs[71];
-                        s["gather"] = attrs[72];
-                        s["perc"] = attrs[73];
                     }
                 } catch { }
 
@@ -233,7 +297,13 @@ namespace XIVHubCompanion
                     mp = player.CurrentMp,
                     maxMp = player.MaxMp,
                     gear = gearList,
-                    stats = s
+                    stats = s,
+                    gil = gil,
+                    inventory = GetMultipleContainers(BagTypes, true),
+                    crystals = GetContainerItems(InventoryType.Crystals),
+                    saddlebag = GetMultipleContainers(SaddlebagTypes, true),
+                    armoury = GetMultipleContainers(ArmouryTypes, false),
+                    activeRetainer = GetActiveRetainerInventory()
                 };
 
                 _sender.SendDataAsync(data);
