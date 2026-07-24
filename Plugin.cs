@@ -267,8 +267,8 @@ namespace XIVHubCompanion
                         s["def"] = attrs[21];
                         s["dh"] = attrs[22];
                         s["mdef"] = attrs[24];
-                        s["crit"] = attrs[25];
-                        s["attackMagicPotency"] = attrs[26];
+                        s["crit"] = attrs[14];
+                        s["attackMagicPotency"] = attrs[33];
                         s["healingMagicPotency"] = attrs[27];
                         s["det"] = attrs[44];
                         s["skillSpeed"] = attrs[45];
