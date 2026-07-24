@@ -7,17 +7,13 @@ This plugin seamlessly and automatically syncs your character data (stats, inven
 
 ## Installation Instructions
 
-Currently, this plugin is in early access/development. To install it using Dalamud's Dev Tools:
-
-1. **Download the latest release**: Grab the `XIVHubCompanion.dll` from the latest release, or clone this repository and compile it yourself using `dotnet build -c Release`.
-2. **Open Dalamud Settings in-game**: Type `/xlsettings` in the FFXIV chat.
-3. **Enable Developer Mode**: Go to the **Experimental** tab and check **Enable Developer Mode**.
-4. **Open the Dev Tools**: Type `/xlplugins` and click on **Dev Tools** in the bottom left corner.
-5. **Install the Plugin**: 
-   - Click on **Installed Dev Plugins**.
-   - Click the folder icon with a `+` (or type the path) to point it to the folder containing your `XIVHubCompanion.dll` and `XIVHubCompanion.json`.
-6. **Enable it**: Ensure the plugin is turned on (the toggle switch is green).
-7. **Configure**: Type `/xivhub` in-game to open the settings menu and make sure syncing is enabled!
+1. **Open Dalamud Settings in-game**: Type `/xlsettings` in the FFXIV chat.
+2. **Go to the Experimental tab**: Click on the **Experimental** tab on the left.
+3. **Add the Custom Repository**: Under "Custom Plugin Repositories", paste the following URL into a new line:
+   `https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/pluginmaster.json`
+4. **Save and Close**: Click the **+** button (or Save/Close) to apply the changes.
+5. **Install the Plugin**: Type `/xlplugins` in chat, search for **XIV Hub Companion**, and click Install!
+6. **Configure**: Once installed, type `/xivhub` in-game to open the settings menu and make sure syncing is enabled.
 
 ## Contributing
 
