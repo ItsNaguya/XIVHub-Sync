@@ -6,12 +6,14 @@ using Dalamud.Game.Command;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System.Collections.Generic;
+using Lumina.Excel.Sheets;
+using Dalamud.Game.Gui.ContextMenu;
 
 namespace XIVHubCompanion
 {
     public sealed class Plugin : IDalamudPlugin
     {
-        public string Name => "XIV Hub Companion";
+        public string Name => "NAGU PAD (XIV HUB COMPANION)";
         private const string CommandName = "/xivhub";
 
         private readonly IDalamudPluginInterface _pluginInterface;
@@ -19,11 +21,14 @@ namespace XIVHubCompanion
         private readonly IObjectTable _objectTable;
         private readonly IFramework _framework;
         private readonly IDataManager _dataManager;
+        private readonly IContextMenu _contextMenu;
+        private readonly IClientState _clientState;
         private readonly IPluginLog _log;
         
         private readonly DataSender _sender;
         private readonly Configuration _configuration;
         private readonly PluginUI _ui;
+        private readonly Collections.CollectionService _collectionService;
         
         // State tracking
         private uint _lastJobId = 0;
@@ -41,24 +46,40 @@ namespace XIVHubCompanion
             IObjectTable objectTable,
             IFramework framework,
             IDataManager dataManager,
-            IPluginLog log)
+            IGameGui gameGui,
+            IChatGui chatGui,
+            IContextMenu contextMenu,
+            IAddonLifecycle addonLifecycle,
+            ITextureProvider textureProvider,
+            ISigScanner sigScanner,
+            IClientState clientState,
+            IPluginLog log,
+            ICondition condition,
+            IUnlockState unlockState)
         {
             _pluginInterface = pluginInterface;
             _commandManager = commandManager;
             _objectTable = objectTable;
             _framework = framework;
             _dataManager = dataManager;
+            _contextMenu = contextMenu;
+            _clientState = clientState;
             _log = log;
+
+            MemoryOffsets.Initialize(sigScanner, log);
 
             _configuration = _pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             _configuration.Initialize(_pluginInterface);
             
-            _sender = new DataSender(_log);
-            _ui = new PluginUI(_configuration, _sender);
+            _collectionService = new Collections.CollectionService(_dataManager, unlockState);
+
+            _sender = new DataSender(_log, _configuration);
+            _ui = new PluginUI(_configuration, _sender, gameGui, chatGui, addonLifecycle, textureProvider, _pluginInterface, _log, objectTable, dataManager, _clientState, _commandManager, condition, unlockState);
+            _sender.StartStreaming();
 
             _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
-                HelpMessage = "Open the XIV Hub Companion settings."
+                HelpMessage = "Opens the NAGU-PAD window."
             });
 
             _pluginInterface.UiBuilder.Draw += DrawUI;
@@ -66,15 +87,65 @@ namespace XIVHubCompanion
             _pluginInterface.UiBuilder.OpenMainUi += DrawConfigUI;
 
             _framework.Update += OnFrameworkUpdate;
+            _contextMenu.OnMenuOpened += OnContextMenuOpened;
+            _clientState.Login += OnLogin;
+
+            if (_clientState.IsLoggedIn && _configuration.OpenOnStartup)
+            {
+                _configuration.IsMinimized = _configuration.StartMinimized;
+                _ui.SettingsVisible = true;
+            }
+
             _log.Info("XIV Hub Companion initialized.");
+        }
+
+        private void OnLogin()
+        {
+            if (_configuration.OpenOnStartup)
+            {
+                _configuration.IsMinimized = _configuration.StartMinimized;
+                _ui.SettingsVisible = true;
+            }
+        }
+
+        private void OnContextMenuOpened(IMenuOpenedArgs args)
+        {
+            if (args.Target is MenuTargetInventory inventoryTarget && inventoryTarget.TargetItem.HasValue)
+            {
+                var itemId = inventoryTarget.TargetItem.Value.ItemId;
+                if (itemId > 0)
+                {
+                    var trueItemId = (int)(itemId % 500000);
+                    
+                    var searchMenuItem = new MenuItem
+                    {
+                        Name = "Search NAGU PAD",
+                        PrefixChar = 'N', // Just a placeholder char if we want an icon later
+                        OnClicked = (i) =>
+                        {
+                            var row = _dataManager.GetExcelSheet<Item>()?.GetRow((uint)trueItemId);
+                            if (row.HasValue)
+                            {
+                                bool canBeHq = row.Value.CanBeHq;
+                                _ui.OpenMarketAppWithItem(trueItemId, row.Value.Name.ToString(), row.Value.Icon.ToString(), canBeHq);
+                            }
+                        }
+                    };
+                    args.AddMenuItem(searchMenuItem);
+                }
+            }
         }
 
         public void Dispose()
         {
             _framework.Update -= OnFrameworkUpdate;
+            _contextMenu.OnMenuOpened -= OnContextMenuOpened;
+            _clientState.Login -= OnLogin;
             _pluginInterface.UiBuilder.Draw -= DrawUI;
             _pluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
+            _pluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
             _commandManager.RemoveHandler(CommandName);
+            _sender.StopStreaming();
             _ui.Dispose();
         }
 
@@ -285,6 +356,11 @@ namespace XIVHubCompanion
                     }
                 } catch { }
 
+                // Fetch Collections
+                var mounts = _collectionService?.GetItems(Collections.CollectionCategory.Mounts).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
+                var minions = _collectionService?.GetItems(Collections.CollectionCategory.Minions).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
+                var achievements = _collectionService?.GetItems(Collections.CollectionCategory.Achievements).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
+
                 // Basic data
                 var data = new
                 {
@@ -303,7 +379,14 @@ namespace XIVHubCompanion
                     crystals = GetContainerItems(InventoryType.Crystals),
                     saddlebag = GetMultipleContainers(SaddlebagTypes, true),
                     armoury = GetMultipleContainers(ArmouryTypes, false),
-                    activeRetainer = GetActiveRetainerInventory()
+                    activeRetainer = GetActiveRetainerInventory(),
+                    collections = new {
+                        mounts = mounts,
+                        minions = minions,
+                        achievements = achievements,
+                        isPrivate = false,
+                        lastSynced = DateTime.UtcNow.ToString("o")
+                    }
                 };
 
                 _sender.SendDataAsync(data);
@@ -315,3 +398,5 @@ namespace XIVHubCompanion
         }
     }
 }
+
+
