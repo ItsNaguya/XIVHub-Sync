@@ -342,6 +342,16 @@ namespace XIVHubCompanion
                 ImGui.SetCursorScreenPos(winPos);
                 ImGui.InvisibleButton("WidgetDrag", new Vector2(160, 100));
                 
+                if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left))
+                {
+                    ImGui.SetWindowPos(ImGui.GetWindowPos() + ImGui.GetIO().MouseDelta);
+                }
+                
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeAll);
+                }
+                
                 ImGui.SetCursorScreenPos(winPos + new Vector2(175, 8));
                 ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
                 ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.65f, 0.7f, 1.0f));
