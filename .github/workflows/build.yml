@@ -52,7 +52,7 @@ jobs:
               LoadPriority = 0
           }
           $jsonString = ConvertTo-Json -InputObject $manifest -Depth 10
-          "[$jsonString]" | Set-Content -Encoding utf8 "pluginmaster.json"
+          "[$jsonString]" | Set-Content -Encoding utf8 "bin/Release/XIVHubCompanion/pluginmaster.json"
 
       - name: Publish to repo branch
         run: |
@@ -61,6 +61,7 @@ jobs:
           git checkout --orphan repo
           git rm -rf .
           Copy-Item bin/Release/XIVHubCompanion/latest.zip .
+          Copy-Item bin/Release/XIVHubCompanion/pluginmaster.json .
           git add latest.zip pluginmaster.json
           git commit -m "Update pluginmaster and zip for release"
           git push -f origin repo

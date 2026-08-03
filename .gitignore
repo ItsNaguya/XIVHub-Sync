@@ -10,3 +10,11 @@ obj/
 
 # Local deployment
 plugin_release/
+
+node_modules/
+package-lock.json
+package.json
+*.bak
+bin/
+obj/
+
