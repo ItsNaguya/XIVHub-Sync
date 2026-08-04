@@ -2,7 +2,7 @@
   "Author": "Naguya",
   "Name": "NAGU PAD (XIV HUB COMPANION)",
   "InternalName": "XIVHubCompanion",
-  "AssemblyVersion": "2.0.0.5",
+  "AssemblyVersion": "2.0.0.6",
   "Description": "Syncs your character data to XIV Hub locally in real time.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
@@ -10,6 +10,5 @@
   "LoadSync": false,
   "LoadPriority": 0,
   "Punchline": "Because clicking sync is so 2023.",
-  "IconUrl": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/main/images/icon.png",
   "Tags": ["xivhub", "sync", "utility", "companion"]
 }
