@@ -36,7 +36,7 @@ namespace XIVHubCompanion
             _log = log;
             _client = new HttpClient();
             _client.Timeout = TimeSpan.FromSeconds(15);
-            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0";
+            var version = typeof(DataSender).Assembly.GetName().Version?.ToString() ?? "1.0";
             _client.DefaultRequestHeaders.Add("User-Agent", $"XIVHubCompanion/{version}");
             _sseClient = new HttpClient();
             _sseClient.Timeout = Timeout.InfiniteTimeSpan;
@@ -121,7 +121,7 @@ namespace XIVHubCompanion
                     _log.Debug($"Connecting to SSE stream at {_streamUrl}...");
                     using var request = new HttpRequestMessage(HttpMethod.Get, _streamUrl);
                     request.Headers.Add("Accept", "text/event-stream");
-                    var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0";
+                    var version = typeof(DataSender).Assembly.GetName().Version?.ToString() ?? "1.0";
                     request.Headers.Add("User-Agent", $"XIVHubCompanion/{version}");
 
                     using var response = await _sseClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
