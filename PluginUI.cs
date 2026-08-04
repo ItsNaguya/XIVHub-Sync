@@ -621,9 +621,9 @@ namespace XIVHubCompanion
                             _isVerifying = true;
                             _errorMessage = "Verifying...";
                             Task.Run(async () => {
-                                var res = await sender.VerifyUserAsync(_inputToken, name);
+                                var res = await sender.VerifyUserAsync(_inputToken.Trim(), name);
                                 if (res == "Success") {
-                                    this.configuration.XivHubId = _inputToken;
+                                    this.configuration.XivHubId = _inputToken.Trim();
                                     this.configuration.IsVerified = true;
                                     this.configuration.Save();
                                     sender.AttachAuthHeader(this.configuration);

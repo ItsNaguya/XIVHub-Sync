@@ -64,6 +64,7 @@ namespace XIVHubCompanion
                     bool isVerified = data?["verified"]?.GetValue<bool>() ?? false;
                     string role = data?["role"]?.ToString() ?? "user";
                     string charName = data?["name"]?.ToString() ?? "";
+                    charName = System.Net.WebUtility.HtmlDecode(charName);
                     
                     if (!isVerified) return "Invalid token";
                     
