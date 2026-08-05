@@ -2,7 +2,7 @@
   "Author": "Naguya",
   "Name": "NAGU PAD (XIV HUB COMPANION)",
   "InternalName": "XIVHubCompanion",
-  "AssemblyVersion": "2.0.0.8",
+  "AssemblyVersion": "2.0.0.9",
   "Description": "Syncs your character data to XIV Hub locally in real time.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
