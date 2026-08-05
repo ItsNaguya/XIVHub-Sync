@@ -62,6 +62,7 @@ namespace XIVHubCompanion
             this.configuration = configuration;
             this.sender = sender;
             this.pluginInterface = pluginInterface;
+            this._inputToken = configuration.XivHubId ?? "";
             this._log = log;
             this._objectTable = objectTable;
             this._textureProvider = textureProvider;
@@ -420,10 +421,15 @@ namespace XIVHubCompanion
                                 if (res == "Success") {
                                     this.configuration.IsVerified = true;
                                     _isVerified = true;
-                                } else {
+                                } else if (res == "Invalid token" || res.StartsWith("Character mismatch")) {
                                     this.configuration.IsVerified = false;
+                                    this.configuration.XivHubId = "";
+                                    this.configuration.Save();
                                     _isVerified = false;
                                     _errorMessage = res;
+                                } else {
+                                    // Server or network error, assume still verified
+                                    _isVerified = true;
                                 }
                             } else {
                                 this.configuration.IsVerified = false;
