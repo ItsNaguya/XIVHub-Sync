@@ -413,12 +413,7 @@ namespace XIVHubCompanion
                         string name = localPlayer.Name.ToString();
                         string world = localPlayer.HomeWorld.Value.Name.ExtractText();
                         Task.Run(async () => {
-                            // Force wipe any legacy tokens that don't start with the new prefix
-                            if (!string.IsNullOrEmpty(this.configuration.XivHubId) && !this.configuration.XivHubId.StartsWith("xh_")) {
-                                this.configuration.XivHubId = "";
-                                this.configuration.IsVerified = false;
-                                this.configuration.Save();
-                            }
+
 
                             if (!string.IsNullOrEmpty(this.configuration.XivHubId)) {
                                 var res = await sender.VerifyUserAsync(this.configuration.XivHubId, name);
