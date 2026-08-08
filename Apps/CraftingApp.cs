@@ -47,22 +47,16 @@ namespace XIVHubCompanion.Apps
             Vector2 btnSize = new Vector2(w / 3f - 10f * PluginUI.AppScale, 35f * PluginUI.AppScale);
 
             Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1f);
-            Vector4 bgActive = new Vector4(0.2f, 0.4f, 0.8f, 1f);
-            Vector4 textNormal = new Vector4(0.8f, 0.8f, 0.8f, 1f);
-            Vector4 textActive = new Vector4(1f, 1f, 1f, 1f);
-
-            if (UIHelper.DrawGarlondButton("btn_craft_tab_add", ImGui.GetCursorScreenPos(), btnSize, "Add Items", _activeTab == 0 ? bgActive : bgNormal, bgActive, _activeTab == 0 ? textActive : textNormal, textActive))
-                _activeTab = 0;
+            string[] tabs = new string[] { 
+                "Add Items", 
+                $"Active Pipeline ({_configuration.CraftingActivePipeline.Count})", 
+                "Macro Solver" 
+            };
             
-            ImGui.SameLine();
-            if (UIHelper.DrawGarlondButton("btn_craft_tab_active", ImGui.GetCursorScreenPos(), btnSize, $"Active Pipeline ({_configuration.CraftingActivePipeline.Count})", _activeTab == 1 ? bgActive : bgNormal, bgActive, _activeTab == 1 ? textActive : textNormal, textActive))
-                _activeTab = 1;
+            UIHelper.DrawPremiumTabSegment(tabs, ref _activeTab, ImGui.GetContentRegionAvail().X);
             
-            ImGui.SameLine();
-            if (UIHelper.DrawGarlondButton("btn_craft_tab_solver", ImGui.GetCursorScreenPos(), btnSize, "Macro Solver", _activeTab == 2 ? bgActive : bgNormal, bgActive, _activeTab == 2 ? textActive : textNormal, textActive))
-                _activeTab = 2;
-
-            ImGui.Dummy(new Vector2(0, 15f * PluginUI.AppScale));
+            ImGui.Spacing();
+            ImGui.Spacing();
         }
 
         public void Dispose()

@@ -103,61 +103,20 @@ namespace XIVHubCompanion
             }
         }
 
-        private void DrawGarlondFrame(ImDrawListPtr bgDrawList, Vector2 outerPos, Vector2 outerSize)
+        private void DrawPremiumFrame(ImDrawListPtr bgDrawList, Vector2 outerPos, Vector2 outerSize)
         {
-            uint gunmetal = UIHelper.Vec4ToU32(new Vector4(0.17f, 0.17f, 0.19f, 1.0f));
-            uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.12f, 0.12f, 0.14f, 1.0f));
-            uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 1.0f));
-            uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
-            uint ceruleumGlow = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.3f));
-            uint rivetColor = UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.09f, 1.0f));
+            uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.1f, 0.95f));
+            uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
+            uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.6f));
             
-            bgDrawList.AddRectFilled(outerPos, outerPos + outerSize, gunmetal, Scaled(12f));
-            bgDrawList.AddRect(outerPos, outerPos + outerSize, edgeHighlight, Scaled(12f), 0, Scaled(2f));
+            float rounding = Scaled(16f);
             
-            Vector2 innerPos = outerPos + Scaled(new Vector2(21, 21));
-            Vector2 innerSize = outerSize - Scaled(new Vector2(42, 42));
+            bgDrawList.AddRectFilled(outerPos, outerPos + outerSize, darkIron, rounding);
+            bgDrawList.AddRect(outerPos, outerPos + outerSize, edgeHighlight, rounding, 0, Scaled(1.5f));
             
-            bgDrawList.AddRectFilled(innerPos, innerPos + innerSize, darkIron, Scaled(4f));
-            
-            bgDrawList.AddRect(innerPos, innerPos + innerSize, ceruleumBlue, Scaled(4f), 0, Scaled(2f));
-            
-            float nodeRadius = Scaled(6f);
-            bgDrawList.AddCircleFilled(innerPos, nodeRadius, ceruleumBlue);
-            bgDrawList.AddCircleFilled(innerPos, nodeRadius + Scaled(4f), ceruleumGlow);
-            
-            bgDrawList.AddCircleFilled(new Vector2(innerPos.X + innerSize.X, innerPos.Y), nodeRadius, ceruleumBlue);
-            bgDrawList.AddCircleFilled(new Vector2(innerPos.X + innerSize.X, innerPos.Y), nodeRadius + Scaled(4f), ceruleumGlow);
-            
-            bgDrawList.AddCircleFilled(new Vector2(innerPos.X, innerPos.Y + innerSize.Y), nodeRadius, ceruleumBlue);
-            bgDrawList.AddCircleFilled(new Vector2(innerPos.X, innerPos.Y + innerSize.Y), nodeRadius + Scaled(4f), ceruleumGlow);
-            
-            bgDrawList.AddCircleFilled(innerPos + innerSize, nodeRadius, ceruleumBlue);
-            bgDrawList.AddCircleFilled(innerPos + innerSize, nodeRadius + Scaled(4f), ceruleumGlow);
-            
-            Vector2 topPlatePos = new Vector2(outerPos.X + outerSize.X / 2 - Scaled(120), outerPos.Y);
-            Vector2 topPlateSize = Scaled(new Vector2(240, 24));
-            bgDrawList.AddRectFilled(topPlatePos, topPlatePos + topPlateSize, darkIron, Scaled(4f));
-            bgDrawList.AddRect(topPlatePos, topPlatePos + topPlateSize, edgeHighlight, Scaled(4f), 0, Scaled(1.5f));
-            
-            Vector2 bottomPlatePos = new Vector2(outerPos.X + outerSize.X / 2 - Scaled(80), outerPos.Y + outerSize.Y - Scaled(15));
-            Vector2 bottomPlateSize = Scaled(new Vector2(160, 15));
-            bgDrawList.AddRectFilled(bottomPlatePos, bottomPlatePos + bottomPlateSize, darkIron, Scaled(4f));
-            bgDrawList.AddRect(bottomPlatePos, bottomPlatePos + bottomPlateSize, edgeHighlight, Scaled(4f), 0, Scaled(1.5f));
-            
-            float btnPanelY = outerPos.Y + Scaled(70);
-            Vector2 btnPanelPos = new Vector2(outerPos.X + outerSize.X - Scaled(25), btnPanelY);
-            Vector2 btnPanelSize = Scaled(new Vector2(25, 90));
-            bgDrawList.AddRectFilled(btnPanelPos, btnPanelPos + btnPanelSize, darkIron, Scaled(4f));
-            bgDrawList.AddRect(btnPanelPos, btnPanelPos + btnPanelSize, edgeHighlight, Scaled(4f), 0, Scaled(1.5f));
-            
-            bgDrawList.AddRectFilled(btnPanelPos + Scaled(new Vector2(2, 5)), btnPanelPos + Scaled(new Vector2(23, 40)), UIHelper.Vec4ToU32(new Vector4(0.05f, 0.05f, 0.05f, 1.0f)), Scaled(2f));
-            bgDrawList.AddRectFilled(btnPanelPos + Scaled(new Vector2(2, 45)), btnPanelPos + Scaled(new Vector2(23, 85)), UIHelper.Vec4ToU32(new Vector4(0.05f, 0.05f, 0.05f, 1.0f)), Scaled(2f));
-            
-            bgDrawList.AddCircleFilled(outerPos + Scaled(new Vector2(16, 16)), Scaled(3.5f), rivetColor);
-            bgDrawList.AddCircleFilled(new Vector2(outerPos.X + outerSize.X - Scaled(16), outerPos.Y + Scaled(16)), Scaled(3.5f), rivetColor);
-            bgDrawList.AddCircleFilled(new Vector2(outerPos.X + Scaled(16), outerPos.Y + outerSize.Y - Scaled(16)), Scaled(3.5f), rivetColor);
-            bgDrawList.AddCircleFilled(outerPos + outerSize - Scaled(new Vector2(16, 16)), Scaled(3.5f), rivetColor);
+            Vector2 topAccentStart = outerPos + new Vector2(Scaled(40), 0);
+            Vector2 topAccentEnd = outerPos + new Vector2(outerSize.X - Scaled(40), 0);
+            bgDrawList.AddLine(topAccentStart, topAccentEnd, ceruleumBlue, Scaled(2f));
         }
 
         public void Draw()
@@ -223,28 +182,14 @@ namespace XIVHubCompanion
                 var winSize = ImGui.GetWindowSize();
                 var drawList = ImGui.GetWindowDrawList();
 
-                uint gunmetal = UIHelper.Vec4ToU32(new Vector4(0.17f, 0.17f, 0.19f, 1.0f));
-                uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.12f, 0.12f, 0.14f, 1.0f));
-                uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 1.0f));
-                uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
-                uint ceruleumGlow = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.3f));
+                uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.1f, 0.95f));
+                uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
+                uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.5f));
                 
-                drawList.AddRectFilled(winPos, winPos + winSize, gunmetal, 8f);
-                drawList.AddRect(winPos, winPos + winSize, edgeHighlight, 8f, 0, 1.5f);
-                
-                Vector2 innerPos = winPos + new Vector2(4, 4);
-                Vector2 innerSize = winSize - new Vector2(8, 8);
-                drawList.AddRectFilled(innerPos, innerPos + innerSize, UIHelper.Vec4ToU32(new Vector4(0.04f, 0.05f, 0.08f, 0.95f)), 4f);
-                drawList.AddRect(innerPos, innerPos + innerSize, ceruleumBlue, 4f, 0, 1.5f);
-
-                drawList.AddCircleFilled(innerPos, 2f, ceruleumBlue);
-                drawList.AddCircleFilled(innerPos, 4f, ceruleumGlow);
-                drawList.AddCircleFilled(new Vector2(innerPos.X + innerSize.X, innerPos.Y), 2f, ceruleumBlue);
-                drawList.AddCircleFilled(new Vector2(innerPos.X + innerSize.X, innerPos.Y), 4f, ceruleumGlow);
-                drawList.AddCircleFilled(new Vector2(innerPos.X, innerPos.Y + innerSize.Y), 2f, ceruleumBlue);
-                drawList.AddCircleFilled(new Vector2(innerPos.X, innerPos.Y + innerSize.Y), 4f, ceruleumGlow);
-                drawList.AddCircleFilled(innerPos + innerSize, 2f, ceruleumBlue);
-                drawList.AddCircleFilled(innerPos + innerSize, 4f, ceruleumGlow);
+                float rounding = 12f;
+                drawList.AddRectFilled(winPos, winPos + winSize, darkIron, rounding);
+                drawList.AddRect(winPos, winPos + winSize, edgeHighlight, rounding, 0, 1.5f);
+                drawList.AddLine(winPos + new Vector2(20, 0), winPos + new Vector2(winSize.X - 20, 0), ceruleumBlue, 2f);
 
                 var gatheringApp = _apps.OfType<GatheringApp>().FirstOrDefault();
                 
@@ -261,7 +206,7 @@ namespace XIVHubCompanion
                     var numSize = ImGui.CalcTextSize(text);
                     
                     float totalWidth = starSize.X + 5f + numSize.X;
-                    Vector2 startPos = innerPos + new Vector2(10f, 10f);
+                    Vector2 startPos = winPos + new Vector2(10f, 10f);
                     
                     float alpha = 0.5f + 0.5f * (float)((Math.Sin(ImGui.GetTime() * 4.0) + 1.0) / 2.0);
                     ImGui.SetCursorScreenPos(startPos);
@@ -312,7 +257,7 @@ namespace XIVHubCompanion
                     ImGui.SetCursorScreenPos(retPos + new Vector2(25, 12));
                     if (timeStr == "Ready!")
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.13f, 0.77f, 0.36f, retAlpha)); // Green for Ready
+                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 0.65f, 1.0f, retAlpha)); // Green for Ready
                     }
                     else
                     {
@@ -450,15 +395,12 @@ namespace XIVHubCompanion
                 Vector2 contentPos = winPos + Scaled(new Vector2(21, 21));
                 Vector2 contentSize = winSize - Scaled(new Vector2(42, 42));
 
-                DrawGarlondFrame(drawList, winPos, winSize);
+                DrawPremiumFrame(drawList, winPos, winSize);
 
                 drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0.02f, 0.03f, 0.05f, 1.0f)), 4f);
                 drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0.04f, 0.05f, 0.08f, 0.95f)), 0f);
 
-                if (!this.configuration.HideBackgroundAnimation)
-                {
-                    _constellation.Draw(contentPos, contentSize, this.configuration.HideScanline);
-                }
+                _constellation.Draw(contentPos, contentSize, this.configuration.HideBackgroundAnimation, this.configuration.HideScanline);
                 drawList.AddRect(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0f, 0.6f, 1f, 0.1f)), 0f, 0, 1f);
 
                 ImGui.SetCursorPos(new Vector2(0, 0));
@@ -475,7 +417,7 @@ namespace XIVHubCompanion
                 ImGui.SetWindowFontScale(AppScale);
                 
                 Vector4 baseIconColor = new Vector4(0.6f, 0.65f, 0.7f, 1.0f);
-                Vector4 closeHoverColor = new Vector4(1.0f, 0.2f, 0.2f, 1.0f);
+                Vector4 closeHoverColor = new Vector4(0.83f, 0.69f, 0.22f, 1.0f);
                 Vector4 minimizeHoverColor = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
                 
                 if (DrawHardwareButton(drawList, "CloseBtn", winPos + new Vector2(winSize.X - Scaled(23f), Scaled(75f)), Scaled(new Vector2(21, 35)), "\uf00d", baseIconColor, closeHoverColor))
@@ -532,7 +474,7 @@ namespace XIVHubCompanion
                 drawList.AddRect(rightPanePos, rightPanePos + rightPaneSize, UIHelper.Vec4ToU32(new Vector4(1, 1, 1, 0.05f)), Scaled(4f), ImDrawFlags.RoundCornersRight, 1.5f);
 
                 ImGui.SetCursorPos(new Vector2(Scaled(25f) + sidebarWidth + Scaled(20f), Scaled(25f))); 
-                UIHelper.BeginSmoothChild("MainContent", new Vector2(contentSize.X - sidebarWidth - Scaled(40f), contentSize.Y - Scaled(50f)), false, mainFlags);
+                UIHelper.BeginSmoothChild("MainContent", new Vector2(contentSize.X - sidebarWidth - Scaled(40f), contentSize.Y - Scaled(35f)), false, mainFlags);
                 
                 if (_selectedApp != null)
                 {
@@ -562,7 +504,7 @@ namespace XIVHubCompanion
                     ImGui.BeginChild("UnverifiedOverlay", contentSize, false, ImGuiWindowFlags.NoScrollbar);
                     
                     float blink = (float)(Math.Sin(ImGui.GetTime() * 6.0) * 0.5 + 0.5);
-                    Vector4 redColor = new Vector4(1.0f, 0.2f, 0.2f, 0.5f + blink * 0.5f);
+                    Vector4 redColor = new Vector4(0.83f, 0.69f, 0.22f, 0.5f + blink * 0.5f);
                     
                     string alertTitle = "UNVERIFIED USER";
                     var titleSize = ImGui.CalcTextSize(alertTitle);
@@ -589,7 +531,7 @@ namespace XIVHubCompanion
                     Vector4 webBtnText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                     Vector4 webBtnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                    if (UIHelper.DrawGarlondButton("btn_open_website", contentPos + new Vector2(contentSize.X / 2 - Scaled(125f), contentSize.Y / 2), new Vector2(Scaled(250f), Scaled(40f)), "Get Token from Website", webBtnBg, webBtnHover, webBtnText, webBtnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_open_website", contentPos + new Vector2(contentSize.X / 2 - Scaled(125f), contentSize.Y / 2), new Vector2(Scaled(250f), Scaled(40f)), "Get Token from Website", webBtnBg, webBtnHover, webBtnText, webBtnHoverText))
                     {
                         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://xiv.naguya.tech/settings") { UseShellExecute = true });
                     }
@@ -597,7 +539,7 @@ namespace XIVHubCompanion
                     if (!string.IsNullOrEmpty(_errorMessage)) {
                         var errSize = ImGui.CalcTextSize(_errorMessage);
                         ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - errSize.X / 2, contentSize.Y / 2 + Scaled(55f)));
-                        ImGui.TextColored(new Vector4(1.0f, 0.2f, 0.2f, 1.0f), _errorMessage);
+                        ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, 1.0f), _errorMessage);
                     }
 
                     ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - Scaled(150f), contentSize.Y / 2 + Scaled(85f)));
@@ -613,7 +555,7 @@ namespace XIVHubCompanion
                     Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
                     Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                    if (UIHelper.DrawGarlondButton("btn_submit_token", contentPos + new Vector2(contentSize.X / 2 - Scaled(75f), contentSize.Y / 2 + Scaled(125f)), new Vector2(Scaled(150f), Scaled(40f)), "Verify Token", btnBg, btnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_submit_token", contentPos + new Vector2(contentSize.X / 2 - Scaled(75f), contentSize.Y / 2 + Scaled(125f)), new Vector2(Scaled(150f), Scaled(40f)), "Verify Token", btnBg, btnHover, btnText, btnHoverText))
                     {
                         var localPlayer = _objectTable[0] as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
                         if (localPlayer != null) {
@@ -645,60 +587,7 @@ namespace XIVHubCompanion
                     ImGui.PopStyleVar();
                 }
 
-                float totalWidth = Scaled(140f);
-                float padding = Scaled(10f);
-                float ledSpacing = Scaled(3f);
-                float ledWidth = (totalWidth - (6 * ledSpacing)) / 7f;
-                float ledHeight = Scaled(5f);
-                
-                float hazardStartX = winPos.X + (winSize.X / 2) - Scaled(80f) + padding;
-                float hazardY = winPos.Y + winSize.Y - Scaled(15f) + Scaled(5f);
-                
-                for (int i = 0; i < 7; i++)
-                {
-                    Vector4 indicatorColor = new Vector4(0.08f, 0.08f, 0.1f, 1.0f);
-                    float glowIntensity = 0f;
 
-                    if (i < _apps.Count)
-                    {
-                        var app = _apps[i];
-                        bool isSelected = (_selectedApp == app);
-                        float hoverState = appHoverStates[i];
-                        
-                        if (isSelected)
-                        {
-                            float pulse = (float)(Math.Sin(ImGui.GetTime() * 5.0) * 0.15f + 0.85f);
-                            indicatorColor = new Vector4(1.0f, 0.9f, 0.2f, pulse);
-                            glowIntensity = pulse;
-                        }
-                        else if (hoverState > 0)
-                        {
-                            indicatorColor = UIHelper.LerpColor(new Vector4(0.08f, 0.08f, 0.1f, 1.0f), new Vector4(1.0f, 0.8f, 0.1f, 1.0f), hoverState);
-                            glowIntensity = hoverState * 0.5f;
-                        }
-                    }
-                    
-                    float curX = hazardStartX + (i * (ledWidth + ledSpacing));
-                    float curY = hazardY;
-                    
-                    Vector2 pMin = new Vector2(curX, curY);
-                    Vector2 pMax = new Vector2(curX + ledWidth, curY + ledHeight);
-
-                    if (glowIntensity > 0)
-                    {
-                        Vector4 glowColor = new Vector4(1.0f, 0.6f, 0.0f, glowIntensity * 0.5f);
-                        drawList.AddRectFilled(pMin - Scaled(new Vector2(3f, 3f)), pMax + Scaled(new Vector2(3f, 3f)), UIHelper.Vec4ToU32(glowColor), Scaled(2f));
-                    }
-                    
-                    drawList.AddRectFilled(pMin, pMax, UIHelper.Vec4ToU32(indicatorColor), Scaled(1f));
-                    
-                    if (glowIntensity > 0)
-                    {
-                        Vector2 hMin = pMin + Scaled(new Vector2(2f, 1f));
-                        Vector2 hMax = pMax - Scaled(new Vector2(2f, 1f));
-                        drawList.AddRectFilled(hMin, hMax, UIHelper.Vec4ToU32(new Vector4(1f, 1f, 1f, glowIntensity * 0.7f)), Scaled(0.5f));
-                    }
-                }
             }
             ImGui.End();
 
@@ -755,19 +644,19 @@ namespace XIVHubCompanion
             float hoverState = UIHelper.GetHoverState(id, isHovered, 12.0f);
             var drawList = ImGui.GetWindowDrawList();
 
-            Vector4 baseBg = isSelected ? new Vector4(0.13f, 0.77f, 0.36f, 0.15f) : new Vector4(1, 1, 1, 0.0f);
-            Vector4 hoverBg = isSelected ? new Vector4(0.13f, 0.77f, 0.36f, 0.25f) : new Vector4(1, 1, 1, 0.05f);
+            Vector4 baseBg = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 0.15f) : new Vector4(1, 1, 1, 0.0f);
+            Vector4 hoverBg = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 0.25f) : new Vector4(1, 1, 1, 0.05f);
             Vector4 currentBg = UIHelper.LerpColor(baseBg, hoverBg, hoverState);
             
             drawList.AddRectFilled(cursorPos, cursorPos + size, UIHelper.Vec4ToU32(currentBg), Scaled(12f));
 
             if (isSelected)
             {
-                drawList.AddRectFilled(cursorPos + new Vector2(-Scaled(10f), Scaled(10f)), cursorPos + new Vector2(-Scaled(7f), size.Y - Scaled(10f)), UIHelper.Vec4ToU32(new Vector4(0.13f, 0.77f, 0.36f, 1.0f)), Scaled(2f));
+                drawList.AddRectFilled(cursorPos + new Vector2(-Scaled(10f), Scaled(10f)), cursorPos + new Vector2(-Scaled(7f), size.Y - Scaled(10f)), UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f)), Scaled(2f));
             }
 
-            Vector4 baseText = isSelected ? new Vector4(0.13f, 0.77f, 0.36f, 1.0f) : new Vector4(0.6f, 0.65f, 0.7f, 1.0f);
-            Vector4 hoverText = isSelected ? new Vector4(0.2f, 0.85f, 0.4f, 1.0f) : new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 baseText = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 1.0f) : new Vector4(0.6f, 0.65f, 0.7f, 1.0f);
+            Vector4 hoverText = isSelected ? new Vector4(0.3f, 0.8f, 1.0f, 1.0f) : new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
             Vector4 currentText = UIHelper.LerpColor(baseText, hoverText, hoverState);
 
             float baseScale = isSelected ? 1.4f : 1.2f;
@@ -807,7 +696,7 @@ namespace XIVHubCompanion
                     ImGui.SetWindowFontScale(1.1f);
                     
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Tablet Size");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Tablet Size");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     int currentSize = this.configuration.TabletSize;
@@ -819,36 +708,36 @@ namespace XIVHubCompanion
                     }
                     
                     ImGui.Dummy(new Vector2(0, 15));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Appearance");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Appearance");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     bool hideAnim = this.configuration.HideBackgroundAnimation;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_bg", "Hide Background Animation", ref hideAnim))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_bg", "Hide Background Animation", ref hideAnim))
                     {
                         this.configuration.HideBackgroundAnimation = hideAnim;
                         this.configuration.Save();
                     }
                     
                     bool hideScan = this.configuration.HideScanline;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_scan", "Hide Scanline", ref hideScan))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_scan", "Hide Scanline", ref hideScan))
                     {
                         this.configuration.HideScanline = hideScan;
                         this.configuration.Save();
                     }
         
                     bool hideScroll = this.configuration.HideScrollbars;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_scroll", "Hide Scrollbars (Dynamic Fade)", ref hideScroll))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_scroll", "Hide Scrollbars (Dynamic Fade)", ref hideScroll))
                     {
                         this.configuration.HideScrollbars = hideScroll;
                         this.configuration.Save();
                     }
 
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Widget Overlays");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Widget Overlays");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     bool showOverlay = this.configuration.ShowMinimizedOverlay;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_overlay", "Enable Minimized Overlays", ref showOverlay))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_overlay", "Enable Minimized Overlays", ref showOverlay))
                     {
                         this.configuration.ShowMinimizedOverlay = showOverlay;
                         this.configuration.Save();
@@ -858,14 +747,14 @@ namespace XIVHubCompanion
                     {
                         ImGui.Indent(20);
                         bool showGathering = this.configuration.ShowMinimizedGatheringOverlay;
-                        if (UIHelper.DrawGarlondSwitchWithText("chk_gathering", "Show Gathering Overlay", ref showGathering))
+                        if (UIHelper.DrawPremiumSwitchWithText("chk_gathering", "Show Gathering Overlay", ref showGathering))
                         {
                             this.configuration.ShowMinimizedGatheringOverlay = showGathering;
                             this.configuration.Save();
                         }
 
                         bool showRetainer = this.configuration.ShowMinimizedRetainerOverlay;
-                        if (UIHelper.DrawGarlondSwitchWithText("chk_retainer", "Show Retainer Overlay", ref showRetainer))
+                        if (UIHelper.DrawPremiumSwitchWithText("chk_retainer", "Show Retainer Overlay", ref showRetainer))
                         {
                             this.configuration.ShowMinimizedRetainerOverlay = showRetainer;
                             this.configuration.Save();
@@ -876,7 +765,7 @@ namespace XIVHubCompanion
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     bool openOnStartup = this.configuration.OpenOnStartup;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_startup", "Open Plugin when Logging In", ref openOnStartup))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_startup", "Open Plugin when Logging In", ref openOnStartup))
                     {
                         this.configuration.OpenOnStartup = openOnStartup;
                         this.configuration.Save();
@@ -887,7 +776,7 @@ namespace XIVHubCompanion
                         ImGui.Dummy(new Vector2(0, 5));
                         ImGui.Indent(20);
                         bool startMinimized = this.configuration.StartMinimized;
-                        if (UIHelper.DrawGarlondSwitchWithText("chk_minimized", "Start Minimized (Background Mode)", ref startMinimized))
+                        if (UIHelper.DrawPremiumSwitchWithText("chk_minimized", "Start Minimized (Background Mode)", ref startMinimized))
                         {
                             this.configuration.StartMinimized = startMinimized;
                             this.configuration.Save();
@@ -896,7 +785,7 @@ namespace XIVHubCompanion
                     }
 
                     ImGui.Dummy(new Vector2(0, 15));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "XIV Hub Identity");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "XIV Hub Identity");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     if (this.configuration.IsVerified)
@@ -905,11 +794,11 @@ namespace XIVHubCompanion
                         if (sender.CurrentUserRole == "admin") roleDisplay = " [Admin]";
                         else if (sender.CurrentUserRole == "friend") roleDisplay = " [Friend]";
                         
-                        ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.3f, 1.0f), $"✓ Verified{roleDisplay} (Token: {this.configuration.XivHubId})");
+                        ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), $"✓ Verified{roleDisplay} (Token: {this.configuration.XivHubId})");
                     }
                     else
                     {
-                        ImGui.TextColored(new Vector4(1, 0.4f, 0.4f, 1.0f), "✗ Unverified");
+                        ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, 1.0f), "✗ Unverified");
                     }
                     
                     ImGui.Dummy(new Vector2(0, 5));
@@ -918,7 +807,7 @@ namespace XIVHubCompanion
                     Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
                     Vector4 btnHoverText = new Vector4(0.0f, 0.0f, 0.0f, 1.0f);
                     
-                    if (UIHelper.DrawGarlondButton("btn_unlink", ImGui.GetCursorScreenPos(), new Vector2(250, 40), "Re-enter Token / Unlink", btnBg, btnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_unlink", ImGui.GetCursorScreenPos(), new Vector2(250, 40), "Re-enter Token / Unlink", btnBg, btnHover, btnText, btnHoverText))
                     {
                         this.configuration.XivHubId = "";
                         this.configuration.IsVerified = false;
@@ -939,11 +828,11 @@ namespace XIVHubCompanion
                     ImGui.SetWindowFontScale(1.1f);
                     
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Synchronization Engine");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Synchronization Engine");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     var enabled = this.configuration.IsSyncEnabled;
-                    if (UIHelper.DrawGarlondSwitchWithText("chk_sync", "Enable Live Background Sync", ref enabled))
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_sync", "Enable Live Background Sync", ref enabled))
                     {
                         this.configuration.IsSyncEnabled = enabled;
                         this.configuration.Save();
@@ -953,7 +842,7 @@ namespace XIVHubCompanion
                     ImGui.TextWrapped("When enabled, this plugin acts as a silent companion, automatically pushing your character data, inventory, and active gear to your XIV Hub web dashboard in real-time.");
                     
                     ImGui.Dummy(new Vector2(0, 20));
-                    ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Engine Telemetry");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Engine Telemetry");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     ImGui.Text($"Total Sync Attempts: {sender.TotalSyncs}");
@@ -962,7 +851,7 @@ namespace XIVHubCompanion
                     ImGui.TextWrapped($"Connection Status: {sender.LastSyncStatus}");
                     
                     ImGui.Dummy(new Vector2(0, 20));
-                    ImGui.TextColored(new Vector4(1.0f, 0.4f, 0.4f, 1.0f), "Data Reset");
+                    ImGui.TextColored(new Vector4(0.9f, 0.8f, 0.4f, 1.0f), "Data Reset");
                     ImGui.Dummy(new Vector2(0, 5));
                     ImGui.TextWrapped("Warning: Wiping the calendar will delete all custom events across all devices for this character. Proceed with caution.");
                     
@@ -971,9 +860,9 @@ namespace XIVHubCompanion
                     Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
                     Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                     Vector4 redBtnBg = new Vector4(0.3f, 0.1f, 0.1f, 1.0f);
-                    Vector4 redBtnHover = new Vector4(0.8f, 0.2f, 0.2f, 1.0f);
+                    Vector4 redBtnHover = new Vector4(0.83f, 0.69f, 0.22f, 1.0f);
                     
-                    if (UIHelper.DrawGarlondButton("btn_wipe", ImGui.GetCursorScreenPos(), new Vector2(150, 30), "Wipe Calendar", redBtnBg, redBtnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_wipe", ImGui.GetCursorScreenPos(), new Vector2(150, 30), "Wipe Calendar", redBtnBg, redBtnHover, btnText, btnHoverText))
                     {
                         _isWipeModalOpen = true;
                     }
@@ -987,7 +876,7 @@ namespace XIVHubCompanion
                         ImGui.TextWrapped("This will permanently delete all events for this character on the XIV Hub backend.");
                         ImGui.Dummy(new Vector2(0, 20 * AppScale));
                         
-                        if (UIHelper.DrawGarlondButton("btn_confirm_wipe", ImGui.GetCursorScreenPos(), new Vector2(120, 30) * AppScale, "Yes, wipe it!", redBtnBg, redBtnHover, btnText, btnHoverText))
+                        if (UIHelper.DrawPremiumButton("btn_confirm_wipe", ImGui.GetCursorScreenPos(), new Vector2(120, 30) * AppScale, "Yes, wipe it!", redBtnBg, redBtnHover, btnText, btnHoverText))
                         {
                             var player = _objectTable[0] as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
                             if (player != null)
@@ -1003,7 +892,7 @@ namespace XIVHubCompanion
                         }
                         ImGui.SameLine(0, 10);
                         
-                        if (UIHelper.DrawGarlondButton("btn_cancel_wipe", ImGui.GetCursorScreenPos(), new Vector2(120, 30) * AppScale, "Cancel", btnBg, btnHover, btnText, btnHoverText))
+                        if (UIHelper.DrawPremiumButton("btn_cancel_wipe", ImGui.GetCursorScreenPos(), new Vector2(120, 30) * AppScale, "Cancel", btnBg, btnHover, btnText, btnHoverText))
                         {
                             _isWipeModalOpen = false;
                         }

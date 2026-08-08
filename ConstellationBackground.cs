@@ -33,7 +33,7 @@ namespace XIVHubCompanion
         private Vector2 _screenSize;
         private float _scanlineY = -100f;
 
-        public void Draw(Vector2 pos, Vector2 size, bool hideScanline = false)
+        public void Draw(Vector2 pos, Vector2 size, bool hideConstellation = false, bool hideScanline = false)
         {
             if (!_initialized || size != _screenSize)
             {
@@ -42,15 +42,21 @@ namespace XIVHubCompanion
                 _initialized = true;
             }
 
-            UpdateParticles(size);
+            if (!hideConstellation)
+            {
+                UpdateParticles(size);
+            }
             
             float dt = ImGui.GetIO().DeltaTime;
             
             // Scanline movement
             float scanTail = 120f;
             float scanFront = 20f;
-            _scanlineY += 60f * dt;
-            if (_scanlineY > size.Y + scanTail) _scanlineY = -scanFront; // wrap around smoothly
+            if (!hideScanline || (!hideConstellation && !hideScanline))
+            {
+                _scanlineY += 60f * dt;
+                if (_scanlineY > size.Y + scanTail) _scanlineY = -scanFront; // wrap around smoothly
+            }
 
             var drawList = ImGui.GetWindowDrawList();
             Vector2 mousePos = ImGui.GetMousePos();
@@ -60,7 +66,9 @@ namespace XIVHubCompanion
             ImGui.PushClipRect(pos, pos + size, true);
 
             // 1. Draw Data Streams (Falling matrix-like lines)
-            foreach (var stream in _streams)
+            if (!hideConstellation)
+            {
+                foreach (var stream in _streams)
             {
                 stream.Position.Y += stream.Speed * dt;
                 if (stream.Position.Y > size.Y + stream.Length)
@@ -80,6 +88,7 @@ namespace XIVHubCompanion
                     new Vector2(streamEnd.X + 1f, streamEnd.Y), // 1px width
                     streamTopCol, streamTopCol, streamBotCol, streamBotCol
                 );
+            }
             }
 
             // 2. Draw Scanline (Gradient fading out at top and bottom)
@@ -113,6 +122,8 @@ namespace XIVHubCompanion
             }
 
             // 3. Draw nodes and connections
+            if (!hideConstellation)
+            {
             for (int i = 0; i < _particles.Count; i++)
             {
                 var p = _particles[i];
@@ -164,6 +175,7 @@ namespace XIVHubCompanion
                         drawList.AddLine(globalPos, mousePos, ImGui.ColorConvertFloat4ToU32(new Vector4(0.2f, 0.8f, 1.0f, alpha)), 1.5f);
                     }
                 }
+            }
             }
 
             ImGui.PopClipRect();

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -171,16 +171,16 @@ namespace XIVHubCompanion.Apps
             
             Vector2 cbP = ImGui.GetCursorScreenPos();
             ImGui.SetCursorScreenPos(cbP + new Vector2(5f * PluginUI.AppScale, 0));
-            if (UIHelper.DrawGarlondCheckbox("##craftable", ImGui.GetCursorScreenPos(), ref _craftableOnly)) PerformSearch();
+            if (UIHelper.DrawPremiumCheckbox("##craftable", ImGui.GetCursorScreenPos(), ref _craftableOnly)) PerformSearch();
             ImGui.SameLine(); ImGui.Text("Craftable");
             ImGui.SameLine(width / 2f + 5f * PluginUI.AppScale);
-            if (UIHelper.DrawGarlondCheckbox("##collectable", ImGui.GetCursorScreenPos(), ref _collectableOnly)) PerformSearch();
+            if (UIHelper.DrawPremiumCheckbox("##collectable", ImGui.GetCursorScreenPos(), ref _collectableOnly)) PerformSearch();
             ImGui.SameLine(); ImGui.Text("Collectable");
             
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
 
             Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawGarlondButton("resetFilters", btnPos, new Vector2(width - 20f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Reset All Filters", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("resetFilters", btnPos, new Vector2(width - 20f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Reset All Filters", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
             {
                 _reqLevelMin = ""; _reqLevelMax = "";
                 _iLvlMin = ""; _iLvlMax = "";
@@ -286,7 +286,7 @@ namespace XIVHubCompanion.Apps
             UIHelper.DrawCard(p, new Vector2(totalWidth, cardHeight), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, new Vector4(0.3f, 0.3f, 0.4f, 0.6f));
             
             Vector2 btnPos = p + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale);
-            if (UIHelper.DrawGarlondButton("hideFiltersBtn", btnPos, new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), _showFilters ? "Hide Filters" : "Show Filters", new Vector4(0, 0, 0, 0.3f), new Vector4(0.2f, 0.2f, 0.3f, 0.8f), new Vector4(0.9f, 0.9f, 0.9f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("hideFiltersBtn", btnPos, new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), _showFilters ? "Hide Filters" : "Show Filters", new Vector4(0, 0, 0, 0.3f), new Vector4(0.2f, 0.2f, 0.3f, 0.8f), new Vector4(0.9f, 0.9f, 0.9f, 1f), Vector4.One))
             {
                 _showFilters = !_showFilters;
             }
@@ -319,7 +319,7 @@ namespace XIVHubCompanion.Apps
             ImGui.PopItemWidth();
             
             Vector2 sp = p + new Vector2(15f * PluginUI.AppScale, 45f * PluginUI.AppScale);
-            UIHelper.DrawGarlondInputText("##searchBoxItems", sp, new Vector2(totalWidth - 30f * PluginUI.AppScale, 30f * PluginUI.AppScale), ref _searchQuery, 100);
+            UIHelper.DrawPremiumInputText("##searchBoxItems", sp, new Vector2(totalWidth - 30f * PluginUI.AppScale, 30f * PluginUI.AppScale), ref _searchQuery, 100);
             
             ImGui.SetCursorScreenPos(p + new Vector2(0, cardHeight + 5f * PluginUI.AppScale));
             if (ImGui.IsItemDeactivatedAfterEdit() || ImGui.IsKeyPressed(ImGuiKey.Enter))
@@ -401,7 +401,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.SameLine();
                 Vector2 btnPos = p + new Vector2(rightAlign, 9f * PluginUI.AppScale);
                 
-                if (UIHelper.DrawGarlondButton("Add##" + recipe.RowId, btnPos, new Vector2(90f * PluginUI.AppScale, 36f * PluginUI.AppScale), "Add", new Vector4(0.28f, 0.5f, 0.69f, 1f), new Vector4(0.4f, 0.8f, 0.66f, 1f), Vector4.One, Vector4.One))
+                if (UIHelper.DrawPremiumButton("Add##" + recipe.RowId, btnPos, new Vector2(90f * PluginUI.AppScale, 36f * PluginUI.AppScale), "Add", new Vector4(0.28f, 0.5f, 0.69f, 1f), new Vector4(0.4f, 0.8f, 0.66f, 1f), Vector4.One, Vector4.One))
                 {
                     var existing = _configuration.CraftingDraftPipeline.FirstOrDefault(x => x.RecipeId == recipe.RowId);
                     if (existing != null) existing.Amount += qty;
@@ -431,7 +431,7 @@ namespace XIVHubCompanion.Apps
             
             ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 60f * PluginUI.AppScale));
             Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawGarlondButton("sendPipelineBtn", btnPos, new Vector2(s.X - 30f * PluginUI.AppScale, 40f * PluginUI.AppScale), "Send to Pipeline", new Vector4(0.8f, 0.6f, 0.1f, 1f), new Vector4(0.9f, 0.7f, 0.2f, 1f), Vector4.One, Vector4.One))
+            if (UIHelper.DrawPremiumButton("sendPipelineBtn", btnPos, new Vector2(s.X - 30f * PluginUI.AppScale, 40f * PluginUI.AppScale), "Send to Pipeline", new Vector4(0.8f, 0.6f, 0.1f, 1f), new Vector4(0.9f, 0.7f, 0.2f, 1f), Vector4.One, Vector4.One))
             {
                 foreach (var draft in _configuration.CraftingDraftPipeline)
                 {
@@ -472,7 +472,7 @@ namespace XIVHubCompanion.Apps
                     
                     ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30f * PluginUI.AppScale);
                     Vector2 xBtnPos = ImGui.GetCursorScreenPos();
-                    if (UIHelper.DrawGarlondButton("del_" + item.RecipeId, xBtnPos, new Vector2(25f * PluginUI.AppScale, 20f * PluginUI.AppScale), "X", new Vector4(0.8f, 0.2f, 0.2f, 1f), new Vector4(1f, 0.3f, 0.3f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("del_" + item.RecipeId, xBtnPos, new Vector2(25f * PluginUI.AppScale, 20f * PluginUI.AppScale), "X", new Vector4(0.83f, 0.69f, 0.22f, 1f), new Vector4(0.93f, 0.79f, 0.32f, 1f), Vector4.One, Vector4.One))
                     {
                         toRemove.Add(item);
                     }

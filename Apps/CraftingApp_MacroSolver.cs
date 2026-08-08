@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -296,7 +296,7 @@ namespace XIVHubCompanion.Apps
                 
                 Vector2 cPos = ImGui.GetCursorScreenPos() + new Vector2((width - cardWidth) * 0.5f, 0);
                 
-                UIHelper.DrawCard(cPos, new Vector2(cardWidth, 45f * PluginUI.AppScale), new Vector4(0.8f, 0.6f, 0.1f, 0.1f), 4f * PluginUI.AppScale, new Vector4(0.8f, 0.6f, 0.1f, 0.3f));
+                UIHelper.DrawCard(cPos, new Vector2(cardWidth, 45f * PluginUI.AppScale), new Vector4(0.8f, 0.12f, 0.12f, 0.14f), 4f * PluginUI.AppScale, new Vector4(0.8f, 0.6f, 0.1f, 0.3f));
                 
                 Vector2 textPos = cPos + new Vector2((cardWidth - textSize.X) * 0.5f, (45f * PluginUI.AppScale - textSize.Y) * 0.5f);
                 ImGui.SetCursorScreenPos(textPos);
@@ -318,7 +318,7 @@ namespace XIVHubCompanion.Apps
                 Vector4 textColor = new Vector4(0.9f, 0.95f, 1.0f, 1.0f);
                 Vector4 textHover = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                if (UIHelper.DrawGarlondButton("solveBtn", cPos, new Vector2(width, 45f * PluginUI.AppScale), "SOLVE MACRO", baseBg, hoverBg, textColor, textHover))
+                if (UIHelper.DrawPremiumButton("solveBtn", cPos, new Vector2(width, 45f * PluginUI.AppScale), "SOLVE MACRO", baseBg, hoverBg, textColor, textHover))
                 {
                     RunSolver();
                 }
@@ -338,7 +338,7 @@ namespace XIVHubCompanion.Apps
             
             float buttonWidth = 120f * PluginUI.AppScale;
             ImGui.SameLine(ImGui.GetContentRegionAvail().X - buttonWidth);
-            if (UIHelper.DrawGarlondButton("crafterProfilesBtn", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), "\uF013 Edit Profiles", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("crafterProfilesBtn", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), "\uF013 Edit Profiles", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
             {
                 _showCrafterProfilesModal = true;
             }
@@ -394,13 +394,13 @@ namespace XIVHubCompanion.Apps
             ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Solver Settings");
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
-            UIHelper.DrawGarlondCheckboxWithText("##reqQ", "Solution must reach target quality", ref _solverRequireTargetQuality);
+            UIHelper.DrawPremiumCheckboxWithText("##reqQ", "Solution must reach target quality", ref _solverRequireTargetQuality);
             
             ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
             
-            UIHelper.DrawGarlondCheckboxWithText("##manip", "Manipulation", ref _solverManipulation);
-            UIHelper.DrawGarlondCheckboxWithText("##hns", "Heart and Soul", ref _solverHeartAndSoul);
-            UIHelper.DrawGarlondCheckboxWithText("##qi", "Quick Innovation", ref _solverQuickInnovation);
+            UIHelper.DrawPremiumCheckboxWithText("##manip", "Manipulation", ref _solverManipulation);
+            UIHelper.DrawPremiumCheckboxWithText("##hns", "Heart and Soul", ref _solverHeartAndSoul);
+            UIHelper.DrawPremiumCheckboxWithText("##qi", "Quick Innovation", ref _solverQuickInnovation);
         }
 
         private void DrawCrafterProfilesModal(Vector2 contentPos, Vector2 contentSize)
@@ -413,7 +413,7 @@ namespace XIVHubCompanion.Apps
                 // Header (Close button)
                 ImGui.SetCursorScreenPos(p + new Vector2(ImGui.GetWindowWidth() - 35f * PluginUI.AppScale, 5f * PluginUI.AppScale));
                 ImGui.PushFont(UiBuilder.IconFont);
-                if (UIHelper.DrawGarlondButton("##closeProfiles", ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.15f, 0.15f, 0.2f, alpha), new Vector4(0.3f, 0.3f, 0.4f, alpha), new Vector4(1f, 1f, 1f, alpha), Vector4.Zero))
+                if (UIHelper.DrawPremiumButton("##closeProfiles", ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.15f, 0.15f, 0.2f, alpha), new Vector4(0.3f, 0.3f, 0.4f, alpha), new Vector4(1f, 1f, 1f, alpha), Vector4.Zero))
                 {
                     _showCrafterProfilesModal = false;
                     _configuration.Save();
@@ -468,7 +468,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.PopFont();
                 copyBtnTxt += " Copy to all";
                 
-                if (UIHelper.DrawGarlondButton("##copyToAll", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(100f * PluginUI.AppScale, 24f * PluginUI.AppScale), copyBtnTxt, new Vector4(0.15f, 0.15f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.4f, 1f), Vector4.One, Vector4.One))
+                if (UIHelper.DrawPremiumButton("##copyToAll", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(100f * PluginUI.AppScale, 24f * PluginUI.AppScale), copyBtnTxt, new Vector4(0.15f, 0.15f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.4f, 1f), Vector4.One, Vector4.One))
                 {
                     var source = _configuration.CrafterProfiles[_selectedProfileJobIndex];
                     for (int i=0; i<8; i++)
@@ -585,7 +585,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.PopFont();
                     mcopyTxt += $" Copy #{i + 1}";
                     
-                    if (UIHelper.DrawGarlondButton($"copyMacro{i}", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), mcopyTxt, new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+                    if (UIHelper.DrawPremiumButton($"copyMacro{i}", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), mcopyTxt, new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
                     {
                         ImGui.SetClipboardText(block);
                     }
