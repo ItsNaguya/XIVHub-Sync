@@ -1,4 +1,4 @@
-using Dalamud.Bindings.ImGui;
+﻿using Dalamud.Bindings.ImGui;
 using System.Numerics;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -248,17 +248,17 @@ namespace XIVHubCompanion.Apps
             Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
             
-            if (UIHelper.DrawGarlondButton("btn_add_event", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), "Add Custom Event", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_add_event", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), "Add Custom Event", btnBg, btnHover, btnText, btnHoverText))
             {
                 _activeModal = ModalType.AddEvent;
             }
 
             ImGui.Spacing(); ImGui.Spacing();
             ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Import from Partake.gg");
-            UIHelper.DrawGarlondInputText("input_partake", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25 * PluginUI.AppScale), ref _importUrl, 255);
+            UIHelper.DrawPremiumInputText("input_partake", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25 * PluginUI.AppScale), ref _importUrl, 255);
             ImGui.Spacing();
             
-            if (UIHelper.DrawGarlondButton("btn_import_event", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), _isImporting ? "Importing..." : "Import Venue/Event", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_import_event", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), _isImporting ? "Importing..." : "Import Venue/Event", btnBg, btnHover, btnText, btnHoverText))
             {
                 if (!string.IsNullOrWhiteSpace(_importUrl) && !_isImporting)
                 {
@@ -288,7 +288,7 @@ namespace XIVHubCompanion.Apps
             float halfWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
 
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            if (UIHelper.DrawGarlondButton("btn_scan_updates", ImGui.GetCursorScreenPos(), new Vector2(halfWidth, 35 * PluginUI.AppScale), _isSyncing ? "\uf254" : "\uf021", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_scan_updates", ImGui.GetCursorScreenPos(), new Vector2(halfWidth, 35 * PluginUI.AppScale), _isSyncing ? "\uf254" : "\uf021", btnBg, btnHover, btnText, btnHoverText))
             {
                 if (!_isSyncing)
                 {
@@ -323,7 +323,7 @@ namespace XIVHubCompanion.Apps
             ImGui.SameLine();
             
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            if (UIHelper.DrawGarlondButton("btn_open_venues", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), "\uf041", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_open_venues", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), "\uf041", btnBg, btnHover, btnText, btnHoverText))
             {
                 _activeModal = ModalType.Venues;
             }
@@ -499,19 +499,19 @@ namespace XIVHubCompanion.Apps
             Vector4 navBtnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
             Vector4 navBtnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
             
-            if (UIHelper.DrawGarlondButton("btn_today", ImGui.GetCursorScreenPos(), new Vector2(50, 25) * PluginUI.AppScale, "Today", navBtnBg, navBtnHover, navBtnText, navBtnText))
+            if (UIHelper.DrawPremiumButton("btn_today", ImGui.GetCursorScreenPos(), new Vector2(50, 25) * PluginUI.AppScale, "Today", navBtnBg, navBtnHover, navBtnText, navBtnText))
             {
                 _currentMonth = DateTime.Now.Month;
                 _currentYear = DateTime.Now.Year;
             }
             ImGui.SameLine();
-            if (UIHelper.DrawGarlondButton("btn_prev_mo", ImGui.GetCursorScreenPos(), new Vector2(25, 25) * PluginUI.AppScale, "<", navBtnBg, navBtnHover, navBtnText, navBtnText))
+            if (UIHelper.DrawPremiumButton("btn_prev_mo", ImGui.GetCursorScreenPos(), new Vector2(25, 25) * PluginUI.AppScale, "<", navBtnBg, navBtnHover, navBtnText, navBtnText))
             {
                 _currentMonth--;
                 if (_currentMonth < 1) { _currentMonth = 12; _currentYear--; }
             }
             ImGui.SameLine();
-            if (UIHelper.DrawGarlondButton("btn_next_mo", ImGui.GetCursorScreenPos(), new Vector2(25, 25) * PluginUI.AppScale, ">", navBtnBg, navBtnHover, navBtnText, navBtnText))
+            if (UIHelper.DrawPremiumButton("btn_next_mo", ImGui.GetCursorScreenPos(), new Vector2(25, 25) * PluginUI.AppScale, ">", navBtnBg, navBtnHover, navBtnText, navBtnText))
             {
                 _currentMonth++;
                 if (_currentMonth > 12) { _currentMonth = 1; _currentYear++; }
@@ -638,7 +638,7 @@ namespace XIVHubCompanion.Apps
             if (string.IsNullOrEmpty(idStr)) idStr = title;
             
             ImGui.PushID(idStr);
-            if (UIHelper.DrawGarlondButton("btn_chip", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetColumnWidth() - 4, 20), $"{timeStr} {displayTitle}", color, hoverColor, new Vector4(1,1,1,1), new Vector4(1,1,1,1), false))
+            if (UIHelper.DrawPremiumButton("btn_chip", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetColumnWidth() - 4, 20), $"{timeStr} {displayTitle}", color, hoverColor, new Vector4(1,1,1,1), new Vector4(1,1,1,1), false))
             {
                 _selectedEvent = ev;
                 _activeModal = ModalType.EventDetails;
@@ -773,8 +773,8 @@ namespace XIVHubCompanion.Apps
 
                     if (hasDelete) {
                         var (n, w) = GetPlayerContext();
-                        Vector4 delBg = new Vector4(0.8f, 0.2f, 0.2f, alphaEv);
-                        if (UIHelper.DrawGarlondButton("btn_del_ev", ImGui.GetCursorScreenPos(), new Vector2(80, 25) * PluginUI.AppScale, "Delete", delBg, btnHover, btnText, btnHoverText)) {
+                        Vector4 delBg = new Vector4(0.83f, 0.69f, 0.22f, alphaEv);
+                        if (UIHelper.DrawPremiumButton("btn_del_ev", ImGui.GetCursorScreenPos(), new Vector2(80, 25) * PluginUI.AppScale, "Delete", delBg, btnHover, btnText, btnHoverText)) {
                             System.Threading.Tasks.Task.Run(async () => {
                                 await _sender.DeleteCustomEventAsync(id);
                                 FetchData(n, w);
@@ -785,13 +785,13 @@ namespace XIVHubCompanion.Apps
                     }
                     
                     if (hasUrl) {
-                        if (UIHelper.DrawGarlondButton("btn_orig_url", ImGui.GetCursorScreenPos(), new Vector2(130, 25) * PluginUI.AppScale, "Original Page", btnBg, btnHover, btnText, btnHoverText)) {
+                        if (UIHelper.DrawPremiumButton("btn_orig_url", ImGui.GetCursorScreenPos(), new Vector2(130, 25) * PluginUI.AppScale, "Original Page", btnBg, btnHover, btnText, btnHoverText)) {
                             try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(sourceUrl) { UseShellExecute = true }); } catch {}
                         }
                         ImGui.SameLine(0, 10 * PluginUI.AppScale);
                     }
                     
-                    if (UIHelper.DrawGarlondButton("btn_close_ev", ImGui.GetCursorScreenPos(), new Vector2(90, 25) * PluginUI.AppScale, "Close", btnBg, btnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_close_ev", ImGui.GetCursorScreenPos(), new Vector2(90, 25) * PluginUI.AppScale, "Close", btnBg, btnHover, btnText, btnHoverText))
                     {
                         isEventDetailsOpen = false;
                     }
@@ -807,11 +807,11 @@ namespace XIVHubCompanion.Apps
                 ImGui.Separator(); ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Event Title*");
-                UIHelper.DrawGarlondInputText("in_title", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customTitle, 100);
+                UIHelper.DrawPremiumInputText("in_title", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customTitle, 100);
                 ImGui.Dummy(new Vector2(0, 25) * PluginUI.AppScale); ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Location*");
-                UIHelper.DrawGarlondInputText("in_loc", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customLocation, 100);
+                UIHelper.DrawPremiumInputText("in_loc", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customLocation, 100);
                 ImGui.Dummy(new Vector2(0, 25) * PluginUI.AppScale); ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Description");
@@ -819,11 +819,11 @@ namespace XIVHubCompanion.Apps
                 ImGui.Spacing();
 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Image URL");
-                UIHelper.DrawGarlondInputText("in_img", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customImage, 255);
+                UIHelper.DrawPremiumInputText("in_img", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customImage, 255);
                 ImGui.Dummy(new Vector2(0, 25) * PluginUI.AppScale); ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Event Link (Discord, Lodestone, etc.)");
-                UIHelper.DrawGarlondInputText("in_url", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customUrl, 255);
+                UIHelper.DrawPremiumInputText("in_url", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25), ref _customUrl, 255);
                 ImGui.Dummy(new Vector2(0, 25) * PluginUI.AppScale); ImGui.Spacing();
 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Date & Time*");
@@ -838,7 +838,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.PopItemWidth();
                 
                 ImGui.SameLine(ImGui.GetContentRegionAvail().X - 80 * PluginUI.AppScale);
-                UIHelper.DrawGarlondCheckbox("chk_weekly", ImGui.GetCursorScreenPos(), ref _customIsWeekly);
+                UIHelper.DrawPremiumCheckbox("chk_weekly", ImGui.GetCursorScreenPos(), ref _customIsWeekly);
                 ImGui.SameLine(); ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Weekly");
                 
                 ImGui.Spacing(); ImGui.Spacing();
@@ -848,7 +848,7 @@ namespace XIVHubCompanion.Apps
                 Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaAdd);
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, alphaAdd);
 
-                if (UIHelper.DrawGarlondButton("btn_save_event", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Save", btnBg, btnHover, btnText, btnHoverText))
+                if (UIHelper.DrawPremiumButton("btn_save_event", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Save", btnBg, btnHover, btnText, btnHoverText))
                 {
                     string isoDate;
                     try {
@@ -876,7 +876,7 @@ namespace XIVHubCompanion.Apps
                     isAddEventOpen = false;
                 }
                 ImGui.SameLine(0, 10 * PluginUI.AppScale);
-                if (UIHelper.DrawGarlondButton("btn_cancel_event", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, btnHoverText)) { isAddEventOpen = false; }
+                if (UIHelper.DrawPremiumButton("btn_cancel_event", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, btnHoverText)) { isAddEventOpen = false; }
                 UIHelper.EndPremiumModal();
             }
 
@@ -893,7 +893,7 @@ namespace XIVHubCompanion.Apps
                 Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, alphaVenues);
                 Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaVenues);
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, alphaVenues);
-                Vector4 delBg = new Vector4(0.8f, 0.2f, 0.2f, alphaVenues);
+                Vector4 delBg = new Vector4(0.83f, 0.69f, 0.22f, alphaVenues);
                 
                 foreach (var v in _venues.ToList())
                 {
@@ -902,7 +902,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.TextColored(new Vector4(1, 1, 1, alphaVenues), venueName);
                     ImGui.SameLine(ImGui.GetContentRegionAvail().X - 60 * PluginUI.AppScale);
                     ImGui.PushID(venueId);
-                    if (UIHelper.DrawGarlondButton("btn_del_ven", ImGui.GetCursorScreenPos(), new Vector2(60, 25) * PluginUI.AppScale, "Delete", delBg, btnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_del_ven", ImGui.GetCursorScreenPos(), new Vector2(60, 25) * PluginUI.AppScale, "Delete", delBg, btnHover, btnText, btnHoverText))
                     {
                         var (name, world) = GetPlayerContext();
                         System.Threading.Tasks.Task.Run(async () =>
@@ -918,7 +918,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.Separator();
                 }
                 ImGui.Spacing();
-                if (UIHelper.DrawGarlondButton("btn_close_venues", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Close", btnBg, btnHover, btnText, btnHoverText)) { isVenuesOpen = false; }
+                if (UIHelper.DrawPremiumButton("btn_close_venues", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Close", btnBg, btnHover, btnText, btnHoverText)) { isVenuesOpen = false; }
 
                 UIHelper.EndPremiumModal();
             }

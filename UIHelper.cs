@@ -22,8 +22,6 @@ namespace XIVHubCompanion
             }
 
             bool originallyDisabled = (flags & ImGuiWindowFlags.NoScrollWithMouse) != 0;
-            
-            // Force disable native mouse scrolling for this child so we can handle it manually
             flags |= ImGuiWindowFlags.NoScrollWithMouse;
             
             bool result = ImGui.BeginChild(id, size, border, flags);
@@ -35,7 +33,6 @@ namespace XIVHubCompanion
             if (!_smoothScrollTargets.ContainsKey(hashId)) _smoothScrollTargets[hashId] = currentScrollY;
             if (!_lastFrameScrolls.ContainsKey(hashId)) _lastFrameScrolls[hashId] = currentScrollY;
             
-            // If actual scroll differs from what we set last frame, user dragged scrollbar (or ImGui resized/clamped)
             if (Math.Abs(currentScrollY - _lastFrameScrolls[hashId]) > 1.0f)
             {
                 _smoothScrollTargets[hashId] = currentScrollY;
@@ -100,12 +97,22 @@ namespace XIVHubCompanion
 
         public static void DrawCard(Vector2 pos, Vector2 size, Vector4 bgColor, float rounding, Vector4 borderColor)
         {
+            float actualRounding = Math.Max(rounding, 8f * PluginUI.AppScale); // Enforce premium rounding
             var drawList = ImGui.GetWindowDrawList();
-            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(bgColor), rounding);
-            drawList.AddRect(pos, pos + size, Vec4ToU32(borderColor), rounding, 0, 1.5f);
+            
+            // Subtle glassmorphism background adjustment
+            Vector4 glassBg = new Vector4(bgColor.X, bgColor.Y, bgColor.Z, Math.Max(0.5f, bgColor.W * 0.8f));
+            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(glassBg), actualRounding);
+            
+            // Subtle top highlight for 3D glass effect
+            drawList.AddRectFilled(pos, pos + new Vector2(size.X, 2f), Vec4ToU32(new Vector4(1f, 1f, 1f, 0.05f)), actualRounding, ImDrawFlags.RoundCornersTop);
+            
+            // Premium border
+            Vector4 premiumBorder = new Vector4(borderColor.X, borderColor.Y, borderColor.Z, Math.Max(0.2f, borderColor.W));
+            drawList.AddRect(pos, pos + size, Vec4ToU32(premiumBorder), actualRounding, 0, 1.5f);
         }
 
-        public static bool DrawGarlondButton(string id, Vector2 pos, Vector2 size, string text, Vector4 baseBg, Vector4 hoverBg, Vector4 baseText, Vector4 hoverText, bool centerText = true)
+        public static bool DrawPremiumButton(string id, Vector2 pos, Vector2 size, string text, Vector4 baseBg, Vector4 hoverBg, Vector4 baseText, Vector4 hoverText, bool centerText = true)
         {
             ImGui.SetCursorScreenPos(pos);
             ImGui.InvisibleButton(id, size);
@@ -114,43 +121,39 @@ namespace XIVHubCompanion
             bool isClicked = ImGui.IsItemClicked();
 
             uint baseId = ImGui.GetID(id);
-            float hoverState = GetHoverState(baseId, isHovered, 10.0f);
+            float hoverState = GetHoverState(baseId, isHovered, 12.0f);
             float activeState = GetHoverState(baseId ^ 0x12345678, isActive, 20.0f);
-
-            float pressOffset = activeState * 1.5f;
-            Vector2 btnStart = pos + new Vector2(pressOffset, 0);
-            Vector2 btnEnd = pos + size + new Vector2(pressOffset, 0);
 
             var currentBg = LerpColor(baseBg, hoverBg, hoverState);
             var drawList = ImGui.GetWindowDrawList();
             
-            drawList.AddRectFilled(btnStart, btnEnd, Vec4ToU32(currentBg), 2f);
+            float rounding = 8f;
+            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), rounding);
             
-            // Outer subtle border
-            drawList.AddRect(btnStart, btnEnd, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 1.0f)), 2f, 0, 1f);
-
-            // Top highlight for physical bevel
-            drawList.AddLine(btnStart + new Vector2(1, 1), new Vector2(btnEnd.X - 1, btnStart.Y + 1), Vec4ToU32(new Vector4(1, 1, 1, 0.15f + hoverState * 0.2f)), 1f);
-
-            // Sci-fi accent line on the left (Garlond style)
             if (hoverState > 0.01f)
             {
-                Vector4 accentColor = LerpColor(new Vector4(0.0f, 0.65f, 1.0f, 0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState);
-                drawList.AddRectFilled(btnStart + new Vector2(0, size.Y * 0.2f), btnStart + new Vector2(3, size.Y * 0.8f), Vec4ToU32(accentColor), 1f);
+                Vector4 glowColor = LerpColor(new Vector4(0.0f, 0.65f, 1.0f, 0f), new Vector4(0.0f, 0.65f, 1.0f, 0.8f), hoverState);
+                drawList.AddRect(pos, pos + size, Vec4ToU32(glowColor), rounding, 0, 1.5f);
+            }
+            else 
+            {
+                drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f)), rounding, 0, 1.0f);
             }
 
-            drawList.PushClipRect(btnStart, btnEnd, true);
+            drawList.PushClipRect(pos, pos + size, true);
             var currentText = LerpColor(baseText, hoverText, hoverState);
             var textSize = ImGui.CalcTextSize(text);
+            
+            Vector2 textOffset = new Vector2(0, activeState * 1.5f);
             
             Vector2 textPos;
             if (centerText)
             {
-                textPos = btnStart + new Vector2(size.X / 2 - textSize.X / 2, size.Y / 2 - textSize.Y / 2);
+                textPos = pos + new Vector2(size.X / 2 - textSize.X / 2, size.Y / 2 - textSize.Y / 2) + textOffset;
             }
             else
             {
-                textPos = btnStart + new Vector2(5, size.Y / 2 - textSize.Y / 2); // left align with a small margin
+                textPos = pos + new Vector2(8, size.Y / 2 - textSize.Y / 2) + textOffset; 
             }
             
             drawList.AddText(textPos, Vec4ToU32(currentText), text);
@@ -159,7 +162,7 @@ namespace XIVHubCompanion
             return isClicked;
         }
 
-        public static bool DrawGarlondCalculateButton(string id, Vector2 pos, Vector2 size, string text, bool isCalculating, Dalamud.Bindings.ImGui.ImTextureID? textureHandle = null)
+        public static bool DrawPremiumCalculateButton(string id, Vector2 pos, Vector2 size, string text, bool isCalculating, Dalamud.Bindings.ImGui.ImTextureID? textureHandle = null)
         {
             float buttonWidth = Math.Min(400f, size.X);
             Vector2 buttonSize = new Vector2(buttonWidth, size.Y);
@@ -171,7 +174,7 @@ namespace XIVHubCompanion
             
             if (isCalculating)
             {
-                ImGui.InvisibleButton(id, buttonSize); // disabled hit test
+                ImGui.InvisibleButton(id, buttonSize);
             }
             else
             {
@@ -183,36 +186,28 @@ namespace XIVHubCompanion
             float hoverState = GetHoverState(baseId, isHovered, 10.0f);
             var drawList = ImGui.GetWindowDrawList();
             
-            // Garlond Ironworks Button Colors
             Vector4 baseBg = new Vector4(0.08f, 0.08f, 0.1f, 1.0f);
             Vector4 hoverBg = new Vector4(0.12f, 0.12f, 0.15f, 1.0f);
             Vector4 currentBg = LerpColor(baseBg, hoverBg, hoverState);
             
             uint ceruleumBlue = Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
-            uint edgeHighlight = Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 1.0f));
+            uint edgeHighlight = Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
 
             if (isCalculating)
                 currentBg = new Vector4(0.05f, 0.05f, 0.06f, 1.0f);
 
-            // Draw Button Base
-            drawList.AddRectFilled(buttonPos, buttonPos + buttonSize, Vec4ToU32(currentBg), 4f);
+            float rounding = 12f;
+            drawList.AddRectFilled(buttonPos, buttonPos + buttonSize, Vec4ToU32(currentBg), rounding);
             
-            // Outer Border
             uint borderColor = isHovered && !isCalculating ? ceruleumBlue : edgeHighlight;
-            drawList.AddRect(buttonPos, buttonPos + buttonSize, borderColor, 4f, 0, isHovered && !isCalculating ? 2f : 1.5f);
-
-            // Inner Shadow/Bevel Line
-            drawList.AddLine(buttonPos + new Vector2(2, 2), new Vector2(buttonPos.X + buttonSize.X - 2, buttonPos.Y + 2), Vec4ToU32(new Vector4(1, 1, 1, 0.1f + hoverState * 0.1f)), 1f);
+            drawList.AddRect(buttonPos, buttonPos + buttonSize, borderColor, rounding, 0, isHovered && !isCalculating ? 2f : 1.0f);
 
             if (isCalculating)
             {
                 float time = (float)ImGui.GetTime();
+                float pulse = (float)Math.Sin(time * 6.0f) * 0.3f + 0.5f;
+                drawList.AddRect(buttonPos, buttonPos + buttonSize, Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, pulse)), rounding, 0, 2f);
                 
-                // Pulsing glow border
-                float pulse = (float)Math.Sin(time * 6.0f) * 0.5f + 0.5f;
-                drawList.AddRect(buttonPos, buttonPos + buttonSize, Vec4ToU32(new Vector4(0.0f, 0.8f, 1.0f, pulse * 0.6f)), 4f, 0, 2f);
-                
-                // Animated loading scanline over the button
                 float scanX = (time * buttonSize.X * 1.5f) % (buttonSize.X * 2) - buttonSize.X;
                 float startX = Math.Max(buttonPos.X, buttonPos.X + scanX);
                 float endX = Math.Min(buttonPos.X + buttonSize.X, buttonPos.X + scanX + 60f);
@@ -222,56 +217,14 @@ namespace XIVHubCompanion
                     drawList.AddRectFilledMultiColor(
                         new Vector2(startX, buttonPos.Y + 2), 
                         new Vector2(endX, buttonPos.Y + buttonSize.Y - 2),
-                        Vec4ToU32(new Vector4(0f, 0.8f, 1f, 0f)),
-                        Vec4ToU32(new Vector4(0f, 0.8f, 1f, 0.4f)),
-                        Vec4ToU32(new Vector4(0f, 0.8f, 1f, 0.4f)),
-                        Vec4ToU32(new Vector4(0f, 0.8f, 1f, 0f))
+                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0f)),
+                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0.3f)),
+                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0.3f)),
+                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0f))
                     );
-                }
-
-                // --- Side Animations ---
-                // Space available on the left and right
-                float sideSpace = buttonPos.X - pos.X;
-                if (sideSpace > 50f)
-                {
-                    float yCenter = pos.Y + size.Y / 2;
-                    float progress = (time * 1.5f) % 1.0f;
-                    
-                    // Left side animated bars moving towards the center
-                    for (int i = 0; i < 3; i++)
-                    {
-                        float offset = (progress + i * 0.33f) % 1.0f; // 0 to 1
-                        float x = pos.X + sideSpace * offset;
-                        float alpha = (float)Math.Sin(offset * Math.PI); // Fade in and out
-                        
-                        drawList.AddRectFilled(
-                            new Vector2(x, yCenter - 10f * alpha),
-                            new Vector2(x + 15f, yCenter + 10f * alpha),
-                            Vec4ToU32(new Vector4(0.0f, 0.8f, 1.0f, alpha * 0.7f))
-                        );
-                    }
-                    
-                    // Right side animated bars moving towards the center
-                    for (int i = 0; i < 3; i++)
-                    {
-                        float offset = (progress + i * 0.33f) % 1.0f; // 0 to 1
-                        float x = (pos.X + size.X) - sideSpace * offset - 15f;
-                        float alpha = (float)Math.Sin(offset * Math.PI); // Fade in and out
-                        
-                        drawList.AddRectFilled(
-                            new Vector2(x, yCenter - 10f * alpha),
-                            new Vector2(x + 15f, yCenter + 10f * alpha),
-                            Vec4ToU32(new Vector4(0.0f, 0.8f, 1.0f, alpha * 0.7f))
-                        );
-                    }
-
-                    // Connecting lines from the edges to the button
-                    drawList.AddLine(new Vector2(pos.X + 10f, yCenter), new Vector2(buttonPos.X - 10f, yCenter), Vec4ToU32(new Vector4(0.0f, 0.5f, 0.8f, 0.5f)), 2f);
-                    drawList.AddLine(new Vector2(buttonPos.X + buttonSize.X + 10f, yCenter), new Vector2(pos.X + size.X - 10f, yCenter), Vec4ToU32(new Vector4(0.0f, 0.5f, 0.8f, 0.5f)), 2f);
                 }
             }
 
-            // Draw Button Text
             var textSize = ImGui.CalcTextSize(text);
             Vector2 textPos = buttonPos + new Vector2((buttonSize.X - textSize.X) / 2, (buttonSize.Y - textSize.Y) / 2);
 
@@ -280,7 +233,8 @@ namespace XIVHubCompanion
 
             return isClicked;
         }
-        public static bool DrawGarlondWarningButton(string id, Vector2 pos, Vector2 size, string text)
+
+        public static bool DrawPremiumWarningButton(string id, Vector2 pos, Vector2 size, string text)
         {
             ImGui.SetCursorScreenPos(pos);
             bool isClicked = ImGui.InvisibleButton(id, size);
@@ -291,18 +245,16 @@ namespace XIVHubCompanion
             
             var drawList = ImGui.GetWindowDrawList();
             
-            Vector4 baseBg = new Vector4(0.85f, 0.2f, 0.1f, 1.0f);
-            Vector4 hoverBg = new Vector4(1.0f, 0.3f, 0.1f, 1.0f);
+            Vector4 baseBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f); // Gunmetal
+            Vector4 hoverBg = new Vector4(0.2f, 0.2f, 0.22f, 1.0f);
             Vector4 currentBg = LerpColor(baseBg, hoverBg, hoverState);
             
-            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), 2f);
-            drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.4f, 0.1f, 0.05f, 1.0f)), 2f, 0, 1f);
-            drawList.AddLine(pos + new Vector2(1, 1), new Vector2(pos.X + size.X - 1, pos.Y + 1), Vec4ToU32(new Vector4(1, 1, 1, 0.15f + hoverState * 0.2f)), 1f);
-
+            float rounding = 8f;
+            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), rounding);
+            
             if (hoverState > 0.01f)
             {
-                Vector4 accentColor = LerpColor(new Vector4(1.0f, 0.8f, 0.0f, 0f), new Vector4(1.0f, 0.8f, 0.0f, 1.0f), hoverState);
-                drawList.AddRectFilled(pos + new Vector2(0, size.Y * 0.2f), pos + new Vector2(3, size.Y * 0.8f), Vec4ToU32(accentColor), 1f);
+                drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(1.0f, 0.5f, 0.2f, hoverState)), rounding, 0, 1.5f);
             }
 
             var currentText = new Vector4(1f, 1f, 1f, 1f);
@@ -313,7 +265,7 @@ namespace XIVHubCompanion
             return isClicked;
         }
 
-        public static bool DrawGarlondCheckbox(string id, Vector2 pos, ref bool isChecked)
+        public static bool DrawPremiumCheckbox(string id, Vector2 pos, ref bool isChecked)
         {
             float size = 18f;
             ImGui.SetCursorScreenPos(pos);
@@ -330,32 +282,32 @@ namespace XIVHubCompanion
             Vector4 darkIron = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
             Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + checkState * 0.5f);
             
-            drawList.AddRectFilled(pos, pos + new Vector2(size, size), Vec4ToU32(darkIron), 3f);
-            drawList.AddRect(pos, pos + new Vector2(size, size), Vec4ToU32(borderCol), 3f, 0, 1.5f);
+            float rounding = 4f;
+            drawList.AddRectFilled(pos, pos + new Vector2(size, size), Vec4ToU32(darkIron), rounding);
+            drawList.AddRect(pos, pos + new Vector2(size, size), Vec4ToU32(borderCol), rounding, 0, 1.5f);
 
             if (checkState > 0.01f)
             {
                 float innerSize = size * 0.5f * checkState;
                 Vector2 center = pos + new Vector2(size / 2, size / 2);
-                drawList.AddRectFilled(center - new Vector2(innerSize / 2), center + new Vector2(innerSize / 2), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, checkState)), 2f);
-                drawList.AddRectFilled(center - new Vector2(innerSize / 2 + 2), center + new Vector2(innerSize / 2 + 2), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, checkState * 0.4f)), 4f);
+                drawList.AddRectFilled(center - new Vector2(innerSize / 2), center + new Vector2(innerSize / 2), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, checkState)), rounding * 0.5f);
             }
 
             return isClicked;
         }
 
-        public static bool DrawGarlondCheckboxWithText(string id, string text, ref bool isChecked)
+        public static bool DrawPremiumCheckboxWithText(string id, string text, ref bool isChecked)
         {
             Vector2 startPos = ImGui.GetCursorPos();
-            bool result = DrawGarlondCheckbox(id, ImGui.GetCursorScreenPos(), ref isChecked);
+            bool result = DrawPremiumCheckbox(id, ImGui.GetCursorScreenPos(), ref isChecked);
             ImGui.SameLine(0, 10);
-            ImGui.SetCursorPosY(startPos.Y + 2); // Center text vertically
+            ImGui.SetCursorPosY(startPos.Y + 2);
             ImGui.Text(text);
-            ImGui.Dummy(new Vector2(0, 4)); // Spacing between rows
+            ImGui.Dummy(new Vector2(0, 4));
             return result;
         }
         
-        public static bool DrawGarlondRadioButton(string id, Vector2 pos, ref int currentVal, int targetVal)
+        public static bool DrawPremiumRadioButton(string id, Vector2 pos, ref int currentVal, int targetVal)
         {
             float radius = 9f;
             ImGui.SetCursorScreenPos(pos);
@@ -373,56 +325,59 @@ namespace XIVHubCompanion
             Vector2 center = pos + new Vector2(radius, radius);
             
             drawList.AddCircleFilled(center, radius, Vec4ToU32(new Vector4(0.12f, 0.12f, 0.14f, 1.0f)));
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.13f, 0.77f, 0.36f, 1.0f), hoverState * 0.5f + selectState * 0.5f);
+            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + selectState * 0.5f);
             drawList.AddCircle(center, radius, Vec4ToU32(borderCol), 0, 1.5f);
 
             if (selectState > 0.01f)
             {
-                drawList.AddCircleFilled(center, radius * 0.5f * selectState, Vec4ToU32(new Vector4(0.13f, 0.77f, 0.36f, selectState)));
-                drawList.AddCircleFilled(center, (radius * 0.5f + 2f) * selectState, Vec4ToU32(new Vector4(0.13f, 0.77f, 0.36f, selectState * 0.4f)));
+                drawList.AddCircleFilled(center, radius * 0.5f * selectState, Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, selectState)));
             }
             
             return isClicked;
         }
 
-        public static bool DrawGarlondRadioButtonWithText(string id, string text, ref int currentVal, int targetVal)
+        public static bool DrawPremiumRadioButtonWithText(string id, string text, ref int currentVal, int targetVal)
         {
             Vector2 startPos = ImGui.GetCursorPos();
-            bool result = DrawGarlondRadioButton(id, ImGui.GetCursorScreenPos(), ref currentVal, targetVal);
+            bool result = DrawPremiumRadioButton(id, ImGui.GetCursorScreenPos(), ref currentVal, targetVal);
             ImGui.SameLine(0, 10);
-            ImGui.SetCursorPosY(startPos.Y + 1); // Center text vertically
+            ImGui.SetCursorPosY(startPos.Y + 1);
             ImGui.Text(text);
             return result;
         }
 
-        public static bool DrawGarlondInputText(string id, Vector2 pos, Vector2 size, ref string text, uint maxLength)
+        public static bool DrawPremiumInputText(string id, Vector2 pos, Vector2 size, ref string text, uint maxLength)
         {
             var drawList = ImGui.GetWindowDrawList();
             ImGui.SetCursorScreenPos(pos);
             
-            // We use a dummy ID to track hover/active state of the input area bounds
             bool isHovered = ImGui.IsMouseHoveringRect(pos, pos + size);
-            bool isActive = ImGui.IsItemActive(); // Works if called after InputText
+            bool isActive = ImGui.IsItemActive(); 
 
             uint baseId = ImGui.GetID(id);
             float hoverState = GetHoverState(baseId, isHovered, 10.0f);
             float activeState = GetHoverState(baseId ^ 0x12345678, isActive, 10.0f);
 
             Vector4 bgCol = new Vector4(0.08f, 0.08f, 0.09f, 1.0f);
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + activeState * 0.5f);
+            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 0.5f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + activeState * 0.5f);
             
-            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(bgCol), 4f);
-            drawList.AddRect(pos, pos + size, Vec4ToU32(borderCol), 4f, 0, 1.5f);
+            float rounding = 8f;
+            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(bgCol), rounding);
+            drawList.AddRect(pos, pos + size, Vec4ToU32(borderCol), rounding, 0, activeState > 0.01f ? 1.5f : 1.0f);
 
             if (activeState > 0.01f)
             {
-                drawList.AddRect(pos - new Vector2(1,1), pos + size + new Vector2(1,1), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, activeState * 0.3f)), 4f, 0, 2f);
+                drawList.AddRect(pos - new Vector2(1,1), pos + size + new Vector2(1,1), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, activeState * 0.3f)), rounding, 0, 2f);
             }
 
             ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0,0,0,0));
             ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, new Vector4(0,0,0,0));
             ImGui.PushStyleColor(ImGuiCol.FrameBgActive, new Vector4(0,0,0,0));
             ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.9f, 0.9f, 0.9f, 1.0f));
+            
+            float padY = Math.Max(0, (size.Y - ImGui.GetTextLineHeight()) * 0.5f);
+            ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(12f, padY));
+            ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 0f);
             
             ImGui.SetNextItemWidth(size.X);
             
@@ -435,23 +390,53 @@ namespace XIVHubCompanion
                 Array.Copy(bytes, _inputBuffer, Math.Min(bytes.Length, _inputBuffer.Length - 1));
             }
             
-            bool changed = ImGui.InputText(id, _inputBuffer);
+            string inputId = id.StartsWith("##") ? id : $"##{id}";
+            bool changed = ImGui.InputText(inputId, _inputBuffer);
             if (changed)
             {
                 int nullIdx = Array.IndexOf(_inputBuffer, (byte)0);
                 text = System.Text.Encoding.UTF8.GetString(_inputBuffer, 0, nullIdx >= 0 ? nullIdx : _inputBuffer.Length);
             }
             
-            // Update active state based on actual input
             isActive = ImGui.IsItemActive();
-            GetHoverState(ImGui.GetID(id) ^ 0x12345678, isActive, 10.0f); // update state
+            GetHoverState(ImGui.GetID(id) ^ 0x12345678, isActive, 10.0f); 
 
+            ImGui.PopStyleVar(2);
             ImGui.PopStyleColor(4);
             
             return changed;
         }
+        public static bool DrawPremiumTabSegment(string[] tabs, ref int activeIndex, float totalWidth)
+        {
+            bool changed = false;
+            float spacing = 8f * PluginUI.AppScale;
+            float segmentWidth = (totalWidth - (spacing * (tabs.Length - 1))) / tabs.Length;
+            Vector2 btnSize = new Vector2(segmentWidth, 35f * PluginUI.AppScale);
+            
+            Vector4 bgActive = new Vector4(0.2f, 0.4f, 0.8f, 1f); // Ceruleum Blue
+            Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1f);
+            Vector4 textNormal = new Vector4(0.8f, 0.8f, 0.8f, 1f);
+            Vector4 textActive = new Vector4(1f, 1f, 1f, 1f);
 
-        public static bool DrawGarlondCollapsingHeader(string id, string text, ref bool isOpen)
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                if (i > 0) ImGui.SameLine(0, spacing);
+                
+                if (DrawPremiumButton("tab_" + tabs[i], ImGui.GetCursorScreenPos(), btnSize, tabs[i], 
+                    activeIndex == i ? bgActive : bgNormal, 
+                    bgActive, 
+                    activeIndex == i ? textActive : textNormal, 
+                    textActive))
+                {
+                    activeIndex = i;
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+
+        public static bool DrawPremiumCollapsingHeader(string id, string text, ref bool isOpen)
         {
             var pos = ImGui.GetCursorScreenPos();
             var size = new Vector2(ImGui.GetContentRegionAvail().X, 30);
@@ -469,8 +454,9 @@ namespace XIVHubCompanion
             Vector4 hoverBg = new Vector4(0.18f, 0.18f, 0.22f, 1.0f);
             var currentBg = LerpColor(bgCol, hoverBg, hoverState);
             
-            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), 4f);
-            drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 1.0f)), 4f, 0, 1f);
+            float rounding = 8f;
+            drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), rounding);
+            drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f)), rounding, 0, 1f);
 
             float arrowSize = 10f;
             Vector2 arrowCenter = pos + new Vector2(15, size.Y / 2);
@@ -506,7 +492,7 @@ namespace XIVHubCompanion
             return a + (b - a) * t;
         }
 
-        public static bool DrawGarlondSwitch(string id, Vector2 pos, ref bool isChecked)
+        public static bool DrawPremiumSwitch(string id, Vector2 pos, ref bool isChecked)
         {
             float width = 36f;
             float height = 20f;
@@ -522,20 +508,18 @@ namespace XIVHubCompanion
 
             var drawList = ImGui.GetWindowDrawList();
             Vector4 offBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 onBg = new Vector4(0.0f, 0.45f, 0.85f, 1.0f);
+            Vector4 onBg = new Vector4(0.0f, 0.5f, 0.9f, 1.0f);
             Vector4 currentBg = LerpColor(offBg, onBg, checkState);
             
-            // Draw pill background
             drawList.AddRectFilled(pos, pos + new Vector2(width, height), Vec4ToU32(currentBg), height * 0.5f);
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + checkState * 0.5f);
+            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 0.5f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + checkState * 0.5f);
             drawList.AddRect(pos, pos + new Vector2(width, height), Vec4ToU32(borderCol), height * 0.5f, 0, 1.5f);
 
-            // Draw handle
             float handleRadius = height * 0.5f - 3f;
             float handleX = Lerp(pos.X + height * 0.5f, pos.X + width - height * 0.5f, checkState);
             Vector2 handleCenter = new Vector2(handleX, pos.Y + height * 0.5f);
             
-            drawList.AddCircleFilled(handleCenter, handleRadius + 1f, Vec4ToU32(new Vector4(0.05f, 0.05f, 0.05f, 0.5f))); // subtle drop shadow
+            drawList.AddCircleFilled(handleCenter, handleRadius + 1f, Vec4ToU32(new Vector4(0.05f, 0.05f, 0.05f, 0.5f))); 
             drawList.AddCircleFilled(handleCenter, handleRadius, Vec4ToU32(new Vector4(0.9f, 0.9f, 0.9f, 1.0f)));
             
             if (checkState > 0.01f) {
@@ -545,10 +529,10 @@ namespace XIVHubCompanion
             return isClicked;
         }
 
-        public static bool DrawGarlondSwitchWithText(string id, string text, ref bool isChecked)
+        public static bool DrawPremiumSwitchWithText(string id, string text, ref bool isChecked)
         {
             Vector2 startPos = ImGui.GetCursorPos();
-            bool result = DrawGarlondSwitch(id, ImGui.GetCursorScreenPos(), ref isChecked);
+            bool result = DrawPremiumSwitch(id, ImGui.GetCursorScreenPos(), ref isChecked);
             ImGui.SameLine(0, 10);
             ImGui.SetCursorPosY(startPos.Y + 2);
             ImGui.Text(text);
@@ -559,10 +543,10 @@ namespace XIVHubCompanion
         public static void BeginTooltip()
         {
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(10, 10));
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 8f);
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1.5f);
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 12f);
+            ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1.0f);
             ImGui.PushStyleColor(ImGuiCol.PopupBg, new Vector4(0.06f, 0.06f, 0.09f, 0.98f));
-            ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.0f, 0.65f, 1.0f, 0.6f));
+            ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
             
             ImGui.BeginTooltip();
         }
@@ -588,12 +572,10 @@ namespace XIVHubCompanion
         {
             var drawList = ImGui.GetWindowDrawList();
             
-            // Elegant premium solution: Draw a neon blue/cyan bottom edge line indicating more content below
-            Vector4 neonGlow = new Vector4(0.0f, 0.65f, 1.0f, 0.5f); // Ironworks cyan glow
+            Vector4 neonGlow = new Vector4(0.0f, 0.65f, 1.0f, 0.5f);
             Vector4 darkShadow = new Vector4(0.0f, 0.0f, 0.0f, 0.6f);
             Vector4 transparent = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
             
-            // Subtle black inner shadow coming UP from the bottom edge
             drawList.AddRectFilledMultiColor(
                 new Vector2(min.X, max.Y - fadeHeight),
                 max,
@@ -603,7 +585,6 @@ namespace XIVHubCompanion
                 Vec4ToU32(darkShadow)
             );
             
-            // Sleek glowing neon line directly on the bottom edge
             drawList.AddLine(new Vector2(min.X, max.Y), new Vector2(max.X, max.Y), Vec4ToU32(neonGlow), 2f);
         }
 
@@ -630,8 +611,8 @@ namespace XIVHubCompanion
             Vector2 modalPos = contentPos + (contentSize - currentSize) * 0.5f;
             
             Vector4 bgColor = new Vector4(0.04f, 0.05f, 0.08f, 0.98f * alpha);
-            drawList.AddRectFilled(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(bgColor), 8f);
-            drawList.AddRect(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(new Vector4(0.79f, 0.66f, 0.41f, 0.3f * alpha)), 8f, 0, 2f);
+            drawList.AddRectFilled(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(bgColor), 12f);
+            drawList.AddRect(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.3f * alpha)), 12f, 0, 1f);
             
             ImGui.SetCursorScreenPos(modalPos + new Vector2(20, 20) * PluginUI.AppScale);
             ImGui.PushStyleVar(ImGuiStyleVar.Alpha, alpha);
@@ -650,4 +631,3 @@ namespace XIVHubCompanion
         }
     }
 }
-

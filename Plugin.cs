@@ -257,6 +257,49 @@ namespace XIVHubCompanion
             };
         }
 
+        private unsafe List<uint> GetCaughtFishes()
+        {
+            var caught = new List<uint>();
+            var ps = PlayerState.Instance();
+            if (ps == null) return caught;
+            
+            var fishSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.FishParameter>();
+            if (fishSheet != null && ps->CaughtFishBitArray.Pointer != null)
+            {
+                var ptr = ps->CaughtFishBitArray.Pointer;
+                foreach (var fish in fishSheet)
+                {
+                    if (fish.Item.RowId == 0) continue;
+                    uint id = fish.RowId;
+                    var offset = id / 8;
+                    var bit = (byte)(id % 8);
+                    if (((ptr[offset] >> bit) & 1) == 1)
+                    {
+                        caught.Add(fish.Item.RowId);
+                    }
+                }
+            }
+
+            var spearSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.SpearfishingItem>();
+            if (spearSheet != null && ps->CaughtSpearfishBitArray.Pointer != null)
+            {
+                var ptr = ps->CaughtSpearfishBitArray.Pointer;
+                foreach (var fish in spearSheet)
+                {
+                    if (fish.Item.RowId == 0) continue;
+                    uint id = fish.RowId;
+                    var offset = id / 8;
+                    var bit = (byte)(id % 8);
+                    if (((ptr[offset] >> bit) & 1) == 1)
+                    {
+                        caught.Add(fish.Item.RowId);
+                    }
+                }
+            }
+            
+            return caught;
+        }
+
         private unsafe void SyncData(Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter player)
         {
             try
@@ -360,6 +403,7 @@ namespace XIVHubCompanion
                 var mounts = _collectionService?.GetItems(Collections.CollectionCategory.Mounts).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
                 var minions = _collectionService?.GetItems(Collections.CollectionCategory.Minions).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
                 var achievements = _collectionService?.GetItems(Collections.CollectionCategory.Achievements).Where(x => x.IsUnlocked).Select(x => x.Name).ToList() ?? new List<string>();
+                var caughtFishes = GetCaughtFishes();
 
                 // Basic data
                 var data = new
@@ -384,6 +428,7 @@ namespace XIVHubCompanion
                         mounts = mounts,
                         minions = minions,
                         achievements = achievements,
+                        caughtFishes = caughtFishes,
                         isPrivate = false,
                         lastSynced = DateTime.UtcNow.ToString("o")
                     }

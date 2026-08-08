@@ -38,12 +38,12 @@ namespace XIVHubCompanion.Apps
             ImGui.SetWindowFontScale(1.1f);
             
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Core Settings");
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Core Settings");
             ImGui.Dummy(new Vector2(0, 5));
             ImGui.Indent(20);
             
             bool audioEnabled = _config.RetainerAudioEnabled;
-            if (UIHelper.DrawGarlondSwitchWithText("chk_ret_audio", "Play Audio Alert on Venture Return", ref audioEnabled))
+            if (UIHelper.DrawPremiumSwitchWithText("chk_ret_audio", "Play Audio Alert on Venture Return", ref audioEnabled))
             {
                 _config.RetainerAudioEnabled = audioEnabled;
                 _config.Save();
@@ -53,7 +53,7 @@ namespace XIVHubCompanion.Apps
             {
                 ImGui.Indent(20);
                 bool fireOnce = _config.RetainerAudioFireOnce;
-                if (UIHelper.DrawGarlondSwitchWithText("chk_ret_once", "Fire Only Once", ref fireOnce))
+                if (UIHelper.DrawPremiumSwitchWithText("chk_ret_once", "Fire Only Once", ref fireOnce))
                 {
                     _config.RetainerAudioFireOnce = fireOnce;
                     _config.Save();
@@ -413,37 +413,13 @@ namespace XIVHubCompanion.Apps
             ImGui.SetCursorScreenPos(cursorStart + new Vector2(availWidth - 140, 25));
             ImGui.BeginGroup();
             
-            ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6f);
+            string[] tabs = new string[] { "Daily", "Weekly" };
+            int activeTabIdx = _activeTab == "daily" ? 0 : 1;
+            if (UIHelper.DrawPremiumTabSegment(tabs, ref activeTabIdx, 110))
+            {
+                _activeTab = activeTabIdx == 0 ? "daily" : "weekly";
+            }
             
-            if (_activeTab == "daily")
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.79f, 0.66f, 0.41f, 0.3f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.79f, 0.66f, 0.41f, 1.0f));
-            }
-            else
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.1f, 0.1f, 0.1f, 0.6f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.6f, 1.0f));
-            }
-            if (ImGui.Button("Daily", new Vector2(110, 30))) _activeTab = "daily";
-            ImGui.PopStyleColor(2);
-
-            ImGui.Spacing();
-
-            if (_activeTab == "weekly")
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.79f, 0.66f, 0.41f, 0.3f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.79f, 0.66f, 0.41f, 1.0f));
-            }
-            else
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.1f, 0.1f, 0.1f, 0.6f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.6f, 1.0f));
-            }
-            if (ImGui.Button("Weekly", new Vector2(110, 30))) _activeTab = "weekly";
-            ImGui.PopStyleColor(2);
-            
-            ImGui.PopStyleVar();
             ImGui.EndGroup();
 
             // Set cursor below the header
@@ -451,37 +427,29 @@ namespace XIVHubCompanion.Apps
 
             // Controls
             ImGui.BeginGroup();
-            ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 12f);
             
-            if (_isEditMode)
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.79f, 0.66f, 0.41f, 0.4f));
-            else
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.2f, 0.2f, 0.2f, 0.8f));
-                
-            if (ImGui.Button(_isEditMode ? "Done Editing" : "Edit Tasks", new Vector2(120, 30)))
+            Vector4 baseBg = new Vector4(0.12f, 0.12f, 0.14f, 1f);
+            Vector4 activeBg = new Vector4(0.0f, 0.65f, 1.0f, 1f);
+            Vector4 textCol = new Vector4(0.9f, 0.9f, 0.9f, 1f);
+            Vector4 activeTextCol = new Vector4(1f, 1f, 1f, 1f);
+            
+            if (UIHelper.DrawPremiumButton("btn_edit_tasks", ImGui.GetCursorScreenPos(), new Vector2(120, 30), _isEditMode ? "Done Editing" : "Edit Tasks", _isEditMode ? activeBg : baseBg, activeBg, _isEditMode ? activeTextCol : textCol, activeTextCol))
             {
                 _isEditMode = !_isEditMode;
             }
-            ImGui.PopStyleColor();
             
             ImGui.SameLine(0, 15);
-            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.2f, 0.2f, 0.2f, 0.8f));
-            if (ImGui.Button("Add Custom", new Vector2(120, 30)))
+            if (UIHelper.DrawPremiumButton("btn_add_custom", ImGui.GetCursorScreenPos(), new Vector2(120, 30), "Add Custom", baseBg, activeBg, textCol, activeTextCol))
             {
                 _activeModal = ModalType.AddTask;
                 _customType = _activeTab;
             }
-            ImGui.PopStyleColor();
             
             ImGui.SameLine(0, 15);
-            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.8f, 0.2f, 0.2f, 0.3f));
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.4f, 0.4f, 1.0f));
-            if (ImGui.Button("Reset Progress", new Vector2(130, 30)))
+            if (UIHelper.DrawPremiumWarningButton("btn_reset_prog", ImGui.GetCursorScreenPos(), new Vector2(130, 30), "Reset Progress"))
             {
                 _activeModal = ModalType.ResetConfirm;
             }
-            ImGui.PopStyleColor(2);
-            ImGui.PopStyleVar();
             ImGui.EndGroup();
 
             ImGui.Spacing(); ImGui.Separator(); ImGui.Spacing();
@@ -539,7 +507,7 @@ namespace XIVHubCompanion.Apps
                             // Use Eye icons
                             string icon = show ? ((char)Dalamud.Interface.FontAwesomeIcon.Eye).ToString() : ((char)Dalamud.Interface.FontAwesomeIcon.EyeSlash).ToString();
                             if (!show) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 0.4f, 0.4f, 1.0f));
-                            else ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.2f, 0.8f, 0.2f, 1.0f));
+                            else ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
                             
                             if (ImGui.Button($"{icon}###toggle_{task.Id}", new Vector2(24, 24)))
                             {
@@ -560,7 +528,7 @@ namespace XIVHubCompanion.Apps
                             {
                                 ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30);
                                 ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.8f, 0.2f, 0.2f, 1.0f));
+                                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.83f, 0.69f, 0.22f, 1.0f));
                                 ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0));
                                 if (ImGui.Button($"{((char)Dalamud.Interface.FontAwesomeIcon.Trash)}###del_{task.Id}", new Vector2(24, 24)))
                                 {
@@ -654,7 +622,7 @@ namespace XIVHubCompanion.Apps
                 Vector4 btnHover = new Vector4(0.2f, 0.2f, 0.25f, alphaAdd);
                 Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaAdd);
                 
-                if (UIHelper.DrawGarlondButton("btn_cancel_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaAdd)))
+                if (UIHelper.DrawPremiumButton("btn_cancel_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaAdd)))
                 {
                     isAddOpen = false;
                 }
@@ -662,7 +630,7 @@ namespace XIVHubCompanion.Apps
                 
                 bool canAdd = !string.IsNullOrEmpty(_customTitle) && !string.IsNullOrEmpty(_customCategory);
                 if (!canAdd) ImGui.BeginDisabled();
-                if (UIHelper.DrawGarlondButton("btn_confirm_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Add Task", new Vector4(0.0f, 0.65f, 1.0f, alphaAdd), new Vector4(0.2f, 0.75f, 1.0f, alphaAdd), new Vector4(1, 1, 1, alphaAdd), new Vector4(1, 1, 1, alphaAdd)))
+                if (UIHelper.DrawPremiumButton("btn_confirm_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Add Task", new Vector4(0.0f, 0.65f, 1.0f, alphaAdd), new Vector4(0.2f, 0.75f, 1.0f, alphaAdd), new Vector4(1, 1, 1, alphaAdd), new Vector4(1, 1, 1, alphaAdd)))
                 {
                     var id = $"custom_{Guid.NewGuid().ToString().Substring(0, 8)}";
                     _customTasks.Add(new RoutineTask { Id = id, Type = _customType, CategoryId = _customCategory, Label = _customTitle });
@@ -679,12 +647,12 @@ namespace XIVHubCompanion.Apps
 
             if (UIHelper.BeginPremiumModal("Confirm Reset", ref isResetOpen, contentPos, contentSize, new Vector2(400, 210) * PluginUI.AppScale, out float alphaReset))
             {
-                ImGui.TextColored(new Vector4(0.8f, 0.2f, 0.2f, alphaReset), "Confirm Reset");
+                ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, alphaReset), "Confirm Reset");
                 ImGui.Separator();
                 ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaReset), $"Are you sure you want to reset all {_activeTab} progress?");
-                ImGui.TextColored(new Vector4(0.8f, 0.2f, 0.2f, alphaReset), "This action cannot be undone.");
+                ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, alphaReset), "This action cannot be undone.");
                 
                 ImGui.Spacing(); ImGui.Spacing();
                 
@@ -695,13 +663,13 @@ namespace XIVHubCompanion.Apps
                 Vector4 btnHover = new Vector4(0.2f, 0.2f, 0.25f, alphaReset);
                 Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaReset);
                 
-                if (UIHelper.DrawGarlondButton("btn_cancel_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaReset)))
+                if (UIHelper.DrawPremiumButton("btn_cancel_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaReset)))
                 {
                     isResetOpen = false;
                 }
                 ImGui.SameLine();
                 
-                if (UIHelper.DrawGarlondWarningButton("btn_confirm_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Yes, Reset"))
+                if (UIHelper.DrawPremiumWarningButton("btn_confirm_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Yes, Reset"))
                 {
                     ResetChecklist(_activeTab);
                     if (_activeTab == "daily") _config.LastDailyResetTime = DateTime.UtcNow.Ticks;
@@ -779,7 +747,7 @@ namespace XIVHubCompanion.Apps
                         long diff = ret->VentureComplete - now;
                         if (diff <= 0)
                         {
-                            ImGui.TextColored(new Vector4(0.2f, 1.0f, 0.2f, 1f), "Returned!");
+                            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1f), "Returned!");
                             returnedCount++;
                         }
                         else

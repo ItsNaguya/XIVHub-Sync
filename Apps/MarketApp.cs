@@ -146,11 +146,11 @@ namespace XIVHubCompanion.Apps
         public void DrawSettings() 
         {
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Integration Options");
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Integration Options");
             ImGui.Dummy(new Vector2(0, 5));
             
             bool enableHover = _configuration.EnableHoverItemFetching;
-            if (UIHelper.DrawGarlondSwitchWithText("chk_hover", "Enable Hover Item Fetching", ref enableHover))
+            if (UIHelper.DrawPremiumSwitchWithText("chk_hover", "Enable Hover Item Fetching", ref enableHover))
             {
                 _configuration.EnableHoverItemFetching = enableHover;
                 _configuration.Save();
@@ -166,6 +166,7 @@ namespace XIVHubCompanion.Apps
 
         private List<DestinationGroup> _destinations = new List<DestinationGroup>();
         private List<CartItem> _cart = new List<CartItem>();
+        private int _activeTabIndex = 0;
         private Dictionary<string, MarketFavorite> _marketFavorites = new Dictionary<string, MarketFavorite>();
         
         private Dictionary<uint, ISharedImmediateTexture> _iconCache = new Dictionary<uint, ISharedImmediateTexture>();
@@ -682,24 +683,22 @@ namespace XIVHubCompanion.Apps
             }
             else
             {
-                if (ImGui.BeginTabBar("MarketAppTabs"))
+                string[] tabs = new string[] { "Search", "Favorites", "Cart & Route" };
+                if (_activeTabIndex < 0 || _activeTabIndex >= tabs.Length) _activeTabIndex = 0;
+                
+                UIHelper.DrawPremiumTabSegment(tabs, ref _activeTabIndex, ImGui.GetContentRegionAvail().X);
+                
+                if (_activeTabIndex == 0)
                 {
-                    if (ImGui.BeginTabItem("Search"))
-                    {
-                        DrawSearchTab();
-                        ImGui.EndTabItem();
-                    }
-                    if (ImGui.BeginTabItem("Favorites"))
-                    {
-                        DrawFavoritesTab();
-                        ImGui.EndTabItem();
-                    }
-                    if (ImGui.BeginTabItem("Cart & Route"))
-                    {
-                        DrawCartAndRouteTab();
-                        ImGui.EndTabItem();
-                    }
-                    ImGui.EndTabBar();
+                    DrawSearchTab();
+                }
+                else if (_activeTabIndex == 1)
+                {
+                    DrawFavoritesTab();
+                }
+                else if (_activeTabIndex == 2)
+                {
+                    DrawCartAndRouteTab();
                 }
             }
             
@@ -713,7 +712,7 @@ namespace XIVHubCompanion.Apps
             
             if (_cart.Count > 0)
             {
-                if (UIHelper.DrawGarlondCollapsingHeader("hdr_route_cfg", "Routing Configuration", ref _isRoutingEngineOpen))
+                if (UIHelper.DrawPremiumCollapsingHeader("hdr_route_cfg", "Routing Configuration", ref _isRoutingEngineOpen))
                 {
                     DrawRoutingEngineUI();
                 }
@@ -722,7 +721,7 @@ namespace XIVHubCompanion.Apps
                 string btnText = _destinations.Count > 0 ? "Recalculate Route (Server)" : "Calculate Route (Server)";
                 if (_isCalculating) btnText = "Calculating Route...";
                 
-                if (UIHelper.DrawGarlondCalculateButton("btn_calc", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 60f * PluginUI.AppScale), btnText, _isCalculating))
+                if (UIHelper.DrawPremiumCalculateButton("btn_calc", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 60f * PluginUI.AppScale), btnText, _isCalculating))
                 {
                     if (!_isCalculating)
                     {
@@ -747,7 +746,7 @@ namespace XIVHubCompanion.Apps
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, 0.7f), "ACTIVE SHOPPING ROUTE");
-                if (UIHelper.DrawGarlondButton("btn_clear_route", ImGui.GetCursorScreenPos(), new Vector2(100, 25) * PluginUI.AppScale, "Clear Route", btnBg, btnHover, btnText, btnHoverText))
+                if (UIHelper.DrawPremiumButton("btn_clear_route", ImGui.GetCursorScreenPos(), new Vector2(100, 25) * PluginUI.AppScale, "Clear Route", btnBg, btnHover, btnText, btnHoverText))
                 {
                     _destinations.Clear();
                     UpdateActiveRetainers();
@@ -769,7 +768,7 @@ namespace XIVHubCompanion.Apps
                 
                 ImGui.Dummy(new Vector2(0, 10) * PluginUI.AppScale);
                 ImGui.TextColored(new Vector4(1, 1, 1, 0.7f), "SHOPPING CART");
-                if (UIHelper.DrawGarlondButton("btn_clear_cart", ImGui.GetCursorScreenPos(), new Vector2(100, 25) * PluginUI.AppScale, "Clear Cart", btnBg, btnHover, btnText, btnHoverText))
+                if (UIHelper.DrawPremiumButton("btn_clear_cart", ImGui.GetCursorScreenPos(), new Vector2(100, 25) * PluginUI.AppScale, "Clear Cart", btnBg, btnHover, btnText, btnHoverText))
                 {
                     _cart.Clear();
                     PushState();
@@ -817,19 +816,19 @@ namespace XIVHubCompanion.Apps
             // LEFT PANE
             if (UIHelper.BeginSmoothChild("search_left_pane", new Vector2(leftPaneWidth, avail.Y), false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
             {
-                UIHelper.DrawGarlondInputText("##search_input", ImGui.GetCursorScreenPos(), new Vector2(leftPaneWidth - (105 * PluginUI.AppScale), 25 * PluginUI.AppScale), ref _searchQuery, 200);
+                UIHelper.DrawPremiumInputText("##search_input", ImGui.GetCursorScreenPos(), new Vector2(leftPaneWidth - (105 * PluginUI.AppScale), 25 * PluginUI.AppScale), ref _searchQuery, 200);
                 ImGui.SameLine(0, 5 * PluginUI.AppScale);
 
                 string searchIcon = ((char)Dalamud.Interface.FontAwesomeIcon.Search).ToString();
                 if (_isSearching)
                 {
                     ImGui.BeginDisabled();
-                    UIHelper.DrawGarlondButton("btn_searching", ImGui.GetCursorScreenPos(), new Vector2(100 * PluginUI.AppScale, 25 * PluginUI.AppScale), $"{searchIcon} Searching...", btnBg, btnBg, btnText, btnText);
+                    UIHelper.DrawPremiumButton("btn_searching", ImGui.GetCursorScreenPos(), new Vector2(100 * PluginUI.AppScale, 25 * PluginUI.AppScale), $"{searchIcon} Searching...", btnBg, btnBg, btnText, btnText);
                     ImGui.EndDisabled();
                 }
                 else
                 {
-                    if (UIHelper.DrawGarlondButton("btn_search", ImGui.GetCursorScreenPos(), new Vector2(100 * PluginUI.AppScale, 25 * PluginUI.AppScale), $"{searchIcon} Search", btnBg, btnHover, btnText, btnHoverText))
+                    if (UIHelper.DrawPremiumButton("btn_search", ImGui.GetCursorScreenPos(), new Vector2(100 * PluginUI.AppScale, 25 * PluginUI.AppScale), $"{searchIcon} Search", btnBg, btnHover, btnText, btnHoverText))
                     {
                         System.Threading.Tasks.Task.Run(() => PerformSearchAsync(_searchQuery));
                     }
@@ -1062,7 +1061,7 @@ namespace XIVHubCompanion.Apps
                     if (_categoryHasMore)
                     {
                         ImGui.Dummy(new Vector2(0, 10 * PluginUI.AppScale));
-                        if (UIHelper.DrawGarlondButton("btn_load_more", ImGui.GetCursorScreenPos(), new Vector2(rightPaneWidth, 30 * PluginUI.AppScale), "Load More", btnBg, btnHover, btnText, btnHoverText))
+                        if (UIHelper.DrawPremiumButton("btn_load_more", ImGui.GetCursorScreenPos(), new Vector2(rightPaneWidth, 30 * PluginUI.AppScale), "Load More", btnBg, btnHover, btnText, btnHoverText))
                         {
                             if (_selectedCategory != null)
                             {
@@ -1195,7 +1194,7 @@ namespace XIVHubCompanion.Apps
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
             // Back Button
-            if (UIHelper.DrawGarlondButton("btn_back_detail", p, new Vector2(40, 32) * PluginUI.AppScale, "<", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_back_detail", p, new Vector2(40, 32) * PluginUI.AppScale, "<", btnBg, btnHover, btnText, btnHoverText))
             {
                 _selectedItem = null;
                 _marketData = null;
@@ -1249,7 +1248,7 @@ namespace XIVHubCompanion.Apps
             bool isFav = _marketFavorites.ContainsKey(_selectedItem.id.ToString());
             float rightEdge = p.X + w;
             ImGui.SameLine(0, 0);
-            if (UIHelper.DrawGarlondButton("btn_fav_detail", new Vector2(Math.Max(p.X + 200, rightEdge - 100 * PluginUI.AppScale), p.Y + 4), new Vector2(90, 25) * PluginUI.AppScale, isFav ? "Unfavorite" : "Favorite", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_fav_detail", new Vector2(Math.Max(p.X + 200, rightEdge - 100 * PluginUI.AppScale), p.Y + 4), new Vector2(90, 25) * PluginUI.AppScale, isFav ? "Unfavorite" : "Favorite", btnBg, btnHover, btnText, btnHoverText))
             {
                 if (isFav) _marketFavorites.Remove(_selectedItem.id.ToString());
                 else _marketFavorites[_selectedItem.id.ToString()] = new MarketFavorite { id = _selectedItem.id, name = _selectedItem.name, icon = _selectedItem.icon, level = _selectedItem.level, ilvl = _selectedItem.ilvl, canBeHq = _selectedItem.canBeHq };
@@ -1281,11 +1280,11 @@ namespace XIVHubCompanion.Apps
             }
 
             // External Links on the right
-            if (UIHelper.DrawGarlondButton("btn_universalis", new Vector2(scopeP.X + w - 190 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "Universalis", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_universalis", new Vector2(scopeP.X + w - 190 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "Universalis", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
             {
                 Dalamud.Utility.Util.OpenLink("https://universalis.app/market/" + _selectedItem.id);
             }
-            if (UIHelper.DrawGarlondButton("btn_garland", new Vector2(scopeP.X + w - 95 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "GarlandTools", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_garland", new Vector2(scopeP.X + w - 95 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "GarlandTools", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
             {
                 Dalamud.Utility.Util.OpenLink("https://garlandtools.org/db/#item/" + _selectedItem.id);
             }
@@ -1338,7 +1337,7 @@ namespace XIVHubCompanion.Apps
             }
             
             ImGui.SameLine(0, 10 * PluginUI.AppScale);
-            if (UIHelper.DrawGarlondButton("btn_add_cart_detail", ImGui.GetCursorScreenPos(), new Vector2(60, 25) * PluginUI.AppScale, "Add", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_add_cart_detail", ImGui.GetCursorScreenPos(), new Vector2(60, 25) * PluginUI.AppScale, "Add", btnBg, btnHover, btnText, btnHoverText))
             {
                 var existing = _cart.FirstOrDefault(c => c.id == _selectedItem.id);
                 if (existing != null)
@@ -1634,7 +1633,7 @@ namespace XIVHubCompanion.Apps
             float rightEdge = p.X + w;
             
             ImGui.PushID(id);
-            if (UIHelper.DrawGarlondButton("fav", new Vector2(Math.Max(p.X + 175, rightEdge - 225), p.Y + 12), new Vector2(75, 25) * PluginUI.AppScale, isFav ? "Unfavorite" : "Favorite", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("fav", new Vector2(Math.Max(p.X + 175, rightEdge - 225), p.Y + 12), new Vector2(75, 25) * PluginUI.AppScale, isFav ? "Unfavorite" : "Favorite", btnBg, btnHover, btnText, btnHoverText))
             {
                 if (isFav) _marketFavorites.Remove(id.ToString());
                 else _marketFavorites[id.ToString()] = new MarketFavorite { id = id, name = name, icon = icon, level = level, ilvl = ilvl, canBeHq = canBeHq };
@@ -1653,7 +1652,7 @@ namespace XIVHubCompanion.Apps
             }
             ImGui.PopItemWidth();
             
-            if (UIHelper.DrawGarlondButton("cart", new Vector2(Math.Max(p.X + 315, rightEdge - 85), p.Y + 12), new Vector2(70, 25) * PluginUI.AppScale, "Add", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("cart", new Vector2(Math.Max(p.X + 315, rightEdge - 85), p.Y + 12), new Vector2(70, 25) * PluginUI.AppScale, "Add", btnBg, btnHover, btnText, btnHoverText))
             {
                 var existing = _cart.FirstOrDefault(c => c.id == id);
                 if (existing != null)
@@ -1691,37 +1690,37 @@ namespace XIVHubCompanion.Apps
                 ImGui.BeginGroup();
                 ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Priority");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
-                UIHelper.DrawGarlondRadioButtonWithText("route_pri_0", "Fastest", ref _routePriority, 0);
-                UIHelper.DrawGarlondRadioButtonWithText("route_pri_1", "Balanced", ref _routePriority, 1);
-                UIHelper.DrawGarlondRadioButtonWithText("route_pri_2", "Cheapest", ref _routePriority, 2);
+                UIHelper.DrawPremiumRadioButtonWithText("route_pri_0", "Fastest", ref _routePriority, 0);
+                UIHelper.DrawPremiumRadioButtonWithText("route_pri_1", "Balanced", ref _routePriority, 1);
+                UIHelper.DrawPremiumRadioButtonWithText("route_pri_2", "Cheapest", ref _routePriority, 2);
                 ImGui.EndGroup();
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
                 ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Strategy");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
-                UIHelper.DrawGarlondRadioButtonWithText("route_strat_0", "Strict Qty", ref _routeStrategy, 0);
-                UIHelper.DrawGarlondRadioButtonWithText("route_strat_1", "Smart Bulk", ref _routeStrategy, 1);
+                UIHelper.DrawPremiumRadioButtonWithText("route_strat_0", "Strict Qty", ref _routeStrategy, 0);
+                UIHelper.DrawPremiumRadioButtonWithText("route_strat_1", "Smart Bulk", ref _routeStrategy, 1);
                 ImGui.EndGroup();
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
                 ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Quality");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
-                UIHelper.DrawGarlondRadioButtonWithText("route_qual_0", "Keep HQ", ref _routeQuality, 0);
-                UIHelper.DrawGarlondRadioButtonWithText("route_qual_1", "Force HQ", ref _routeQuality, 1);
-                UIHelper.DrawGarlondRadioButtonWithText("route_qual_2", "Ignore HQ", ref _routeQuality, 2);
+                UIHelper.DrawPremiumRadioButtonWithText("route_qual_0", "Keep HQ", ref _routeQuality, 0);
+                UIHelper.DrawPremiumRadioButtonWithText("route_qual_1", "Force HQ", ref _routeQuality, 1);
+                UIHelper.DrawPremiumRadioButtonWithText("route_qual_2", "Ignore HQ", ref _routeQuality, 2);
                 ImGui.EndGroup();
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
                 ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Travel");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
-                UIHelper.DrawGarlondSwitchWithText("chk_server_travel", "Allow Server Travel", ref _allowServerTravel);
+                UIHelper.DrawPremiumSwitchWithText("chk_server_travel", "Allow Server Travel", ref _allowServerTravel);
                 if (!_allowServerTravel) _allowDcTravel = false;
                 
                 ImGui.Dummy(new Vector2(0, 2) * PluginUI.AppScale);
-                UIHelper.DrawGarlondSwitchWithText("chk_dc_travel", "Allow DC Travel", ref _allowDcTravel);
+                UIHelper.DrawPremiumSwitchWithText("chk_dc_travel", "Allow DC Travel", ref _allowDcTravel);
                 ImGui.EndGroup();
 
                 ImGui.EndTable();
@@ -1779,7 +1778,7 @@ namespace XIVHubCompanion.Apps
         private void DrawDestinationGroup(DestinationGroup dest)
         {
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "\uf0ac");
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "\uf0ac");
             ImGui.PopFont();
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1.0f), $"{dest.world} [{dest.dc}]");
@@ -1815,7 +1814,7 @@ namespace XIVHubCompanion.Apps
             ImGui.SetCursorScreenPos(new Vector2(p.X + 12, p.Y + 17));
             bool isChecked = stop.checkedState;
             ImGui.PushID(stop.id);
-            if (UIHelper.DrawGarlondCheckbox("chk", ImGui.GetCursorScreenPos(), ref isChecked))
+            if (UIHelper.DrawPremiumCheckbox("chk", ImGui.GetCursorScreenPos(), ref isChecked))
             {
                 stop.checkedState = isChecked;
                 _sender.SendActionAsync(new { action = "TOGGLE_STOP", itemId = stop.itemId, @checked = isChecked });
@@ -1890,7 +1889,7 @@ namespace XIVHubCompanion.Apps
             ImGui.SetCursorScreenPos(new Vector2(totalX, p.Y + 18));
             ImGui.TextColored(new Vector4(0.94f, 0.78f, 0.35f, 1f), totalText);
 
-            if (UIHelper.DrawGarlondWarningButton($"btn_soldout_{stop.id}", new Vector2(btnX, p.Y + 16), new Vector2(btnWidth, 22 * PluginUI.AppScale), "Sold Out"))
+            if (UIHelper.DrawPremiumWarningButton($"btn_soldout_{stop.id}", new Vector2(btnX, p.Y + 16), new Vector2(btnWidth, 22 * PluginUI.AppScale), "Sold Out"))
             {
                 // Trigger automatic recalculation
                 string homeWorld = ((_objectTable[0] as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter)?.HomeWorld.Value.Name.ToString()) ?? "Cerberus";
@@ -1983,7 +1982,7 @@ namespace XIVHubCompanion.Apps
                 }
             }
             
-            if (UIHelper.DrawGarlondButton("rem", new Vector2(Math.Max(p.X + 200, rightEdge - 145), p.Y + 12), new Vector2(25, 25) * PluginUI.AppScale, "-", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("rem", new Vector2(Math.Max(p.X + 200, rightEdge - 145), p.Y + 12), new Vector2(25, 25) * PluginUI.AppScale, "-", btnBg, btnHover, btnText, btnHoverText))
             {
                 item.quantity--;
                 if (item.quantity <= 0) _cart.Remove(item);
@@ -2004,7 +2003,7 @@ namespace XIVHubCompanion.Apps
             }
             ImGui.PopItemWidth();
             
-            if (UIHelper.DrawGarlondButton("add", new Vector2(Math.Max(p.X + 290, rightEdge - 55), p.Y + 12), new Vector2(25, 25) * PluginUI.AppScale, "+", btnBg, btnHover, btnText, btnHoverText))
+            if (UIHelper.DrawPremiumButton("add", new Vector2(Math.Max(p.X + 290, rightEdge - 55), p.Y + 12), new Vector2(25, 25) * PluginUI.AppScale, "+", btnBg, btnHover, btnText, btnHoverText))
             {
                 item.quantity++;
                 PushState();

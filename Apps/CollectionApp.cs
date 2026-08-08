@@ -26,6 +26,8 @@ namespace XIVHubCompanion.Apps
         private string _selectedSubcategory = "All";
         private string _searchQuery = "";
         private bool _showOnlyUnlocked = false;
+        private Dictionary<CollectionCategory, bool> _categoryOpenState = new Dictionary<CollectionCategory, bool>();
+        private Dictionary<CollectionCategory, float> _categoryAnimProgress = new Dictionary<CollectionCategory, float>();
 
         public CollectionApp(DataSender sender, CollectionService collectionService, ITextureProvider textureProvider)
         {
@@ -67,8 +69,6 @@ namespace XIVHubCompanion.Apps
             ImGui.Separator();
             ImGui.Spacing();
 
-            ImGui.PushStyleVar(ImGuiStyleVar.IndentSpacing, 16f);
-
             foreach (CollectionCategory category in Enum.GetValues(typeof(CollectionCategory)))
             {
                 var items = _collectionService.GetItems(category);
@@ -78,28 +78,48 @@ namespace XIVHubCompanion.Apps
                 int unlocked = items.Count(x => x.IsUnlocked);
                 
                 bool isCategorySelected = _selectedCategory == category && _selectedSubcategory == "All";
-                var flags = ImGuiTreeNodeFlags.OpenOnArrow | ImGuiTreeNodeFlags.SpanAvailWidth;
-                if (isCategorySelected) flags |= ImGuiTreeNodeFlags.Selected;
                 
-                if (category == CollectionCategory.Mounts && _selectedSubcategory == "All") 
+                if (!_categoryOpenState.ContainsKey(category)) 
+                    _categoryOpenState[category] = (category == CollectionCategory.Mounts);
+
+                bool isOpen = _categoryOpenState[category];
+                string icon = isOpen ? "▼" : "▶";
+                
+                Vector4 bgActive = new Vector4(0.0f, 0.4f, 0.7f, 0.4f);
+                Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
+                
+                if (UIHelper.DrawPremiumButton($"btn_cat_{category}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), $"{icon}  {category} ({unlocked}/{total})", isCategorySelected ? bgActive : bgNormal, bgActive, Vector4.One, Vector4.One))
                 {
-                    ImGui.SetNextItemOpen(true, ImGuiCond.FirstUseEver);
+                    if (isCategorySelected) {
+                        _categoryOpenState[category] = !isOpen;
+                    } else {
+                        _selectedCategory = category;
+                        _selectedSubcategory = "All";
+                        _categoryOpenState[category] = true;
+                    }
                 }
 
-                if (isCategorySelected) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.ParsedGold);
-                bool isOpen = ImGui.TreeNodeEx($"{category} ({unlocked}/{total})##main{category}", flags);
-                if (isCategorySelected) ImGui.PopStyleColor();
+                float target = isOpen ? 1f : 0f;
+                if (!_categoryAnimProgress.ContainsKey(category)) _categoryAnimProgress[category] = target;
 
-                if (ImGui.IsItemClicked() && !ImGui.IsItemToggledOpen())
+                float current = _categoryAnimProgress[category];
+                if (current != target)
                 {
-                    _selectedCategory = category;
-                    _selectedSubcategory = "All";
+                    current = current + (target - current) * Math.Min(1f, 8f * ImGui.GetIO().DeltaTime);
+                    if (Math.Abs(current - target) < 0.01f) current = target;
+                    _categoryAnimProgress[category] = current;
                 }
 
-                if (isOpen)
+                if (current > 0.01f)
                 {
                     var subcategories = items.Select(i => i.Subcategory).Distinct().OrderBy(s => s).ToList();
-                    
+                    int validSubs = subcategories.Count(s => !string.IsNullOrEmpty(s));
+                    float itemHeight = 28f * PluginUI.AppScale + ImGui.GetStyle().ItemSpacing.Y;
+                    float totalHeight = validSubs * itemHeight;
+
+                    UIHelper.BeginSmoothChild($"sub_{category}", new Vector2(0, totalHeight * current), false, ImGuiWindowFlags.NoScrollbar);
+                    ImGui.PushStyleVar(ImGuiStyleVar.Alpha, current);
+
                     foreach (var sub in subcategories)
                     {
                         if (string.IsNullOrEmpty(sub)) continue;
@@ -109,23 +129,20 @@ namespace XIVHubCompanion.Apps
 
                         bool isSubSelected = _selectedCategory == category && _selectedSubcategory == sub;
                         
-                        var subFlags = ImGuiTreeNodeFlags.Leaf | ImGuiTreeNodeFlags.NoTreePushOnOpen | ImGuiTreeNodeFlags.SpanAvailWidth;
-                        if (isSubSelected) subFlags |= ImGuiTreeNodeFlags.Selected;
-
-                        if (isSubSelected) ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.ParsedGold);
-                        ImGui.TreeNodeEx($"{sub} ({subUnlocked}/{subTotal})##{category}_{sub}", subFlags);
-                        if (ImGui.IsItemClicked())
+                        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 15f * PluginUI.AppScale);
+                        
+                        if (UIHelper.DrawPremiumButton($"btn_sub_{category}_{sub}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 28f * PluginUI.AppScale), $"{sub} ({subUnlocked}/{subTotal})", isSubSelected ? bgActive : new Vector4(0,0,0,0), bgActive, isSubSelected ? Vector4.One : new Vector4(0.7f, 0.7f, 0.7f, 1f), Vector4.One))
                         {
                             _selectedCategory = category;
                             _selectedSubcategory = sub;
                         }
-                        if (isSubSelected) ImGui.PopStyleColor();
                     }
-                    ImGui.TreePop();
+                    
+                    ImGui.PopStyleVar();
+                    ImGui.EndChild();
                 }
+                ImGui.Spacing();
             }
-
-            ImGui.PopStyleVar();
         }
 
         private void DrawContent()
@@ -133,9 +150,11 @@ namespace XIVHubCompanion.Apps
             var items = _collectionService.GetItems(_selectedCategory);
 
             // Filtering
-            ImGui.SetNextItemWidth(250f);
-            ImGui.InputTextWithHint("##search", "Search ", ref _searchQuery, 100);
+            ImGui.SetNextItemWidth(250f * PluginUI.AppScale);
+            UIHelper.DrawPremiumInputText("txt_col_search", ImGui.GetCursorScreenPos(), new Vector2(250f * PluginUI.AppScale, 30f * PluginUI.AppScale), ref _searchQuery, 100);
+            
             ImGui.SameLine();
+            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5f * PluginUI.AppScale);
             ImGui.Checkbox("Owned Only", ref _showOnlyUnlocked);
 
             var filtered = items.Where(i => 
@@ -147,11 +166,11 @@ namespace XIVHubCompanion.Apps
             int total = items.Count(i => _selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory);
             int unlocked = items.Count(i => (_selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory) && i.IsUnlocked);
             
-            ImGui.SameLine();
-            ImGui.SetCursorPosX(ImGui.GetContentRegionMax().X - 250f);
-            ImGui.TextColored(ImGuiColors.ParsedGold, $"Progress: {unlocked} / {total} ({((total > 0 ? (float)unlocked/total*100f : 0)):F1}%)");
-
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), $"Category Progress: {unlocked} / {total} ({((total > 0 ? (float)unlocked/total*100f : 0)):F1}%)");
+            ImGui.PushStyleColor(ImGuiCol.PlotHistogram, UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f)));
             ImGui.ProgressBar(total > 0 ? (float)unlocked/total : 0, new Vector2(-1, 4), "");
+            ImGui.PopStyleColor();
 
             ImGui.Spacing();
 
@@ -170,9 +189,9 @@ namespace XIVHubCompanion.Apps
             }
 
             // Premium Grid rendering
-            float cardWidth = 110f;
-            float cardHeight = 145f;
-            float padding = 12f;
+            float cardWidth = 100f * PluginUI.AppScale; // Reduced to fit more cards per row
+            float cardHeight = 135f * PluginUI.AppScale;
+            float padding = 12f * PluginUI.AppScale;
             float availableWidth = ImGui.GetContentRegionAvail().X;
             int columns = Math.Max(1, (int)(availableWidth / (cardWidth + padding)));
 
@@ -202,8 +221,8 @@ namespace XIVHubCompanion.Apps
             var drawList = ImGui.GetWindowDrawList();
             
             float cornerRadius = 12f;
-            var bgColor = item.IsUnlocked ? new Vector4(0.12f, 0.18f, 0.12f, 1f) : new Vector4(0.08f, 0.08f, 0.08f, 1f);
-            var borderColor = item.IsUnlocked ? new Vector4(0.4f, 0.7f, 0.4f, 0.8f) : new Vector4(0.2f, 0.2f, 0.2f, 0.5f);
+            var bgColor = item.IsUnlocked ? new Vector4(0.0f, 0.15f, 0.25f, 1f) : new Vector4(0.08f, 0.08f, 0.09f, 1f);
+            var borderColor = item.IsUnlocked ? new Vector4(0.0f, 0.65f, 1.0f, 0.8f) : new Vector4(0.2f, 0.2f, 0.25f, 0.5f);
             
             drawList.AddRectFilled(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(bgColor), cornerRadius);
             drawList.AddRect(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(borderColor), cornerRadius, ImDrawFlags.None, item.IsUnlocked ? 1.5f : 1f);
@@ -253,7 +272,7 @@ namespace XIVHubCompanion.Apps
             {
                 ImGui.BeginTooltip();
                 
-                ImGui.TextColored(item.IsUnlocked ? ImGuiColors.ParsedGreen : ImGuiColors.DalamudGrey, item.Name);
+                ImGui.TextColored(item.IsUnlocked ? new Vector4(0.0f, 0.65f, 1.0f, 1.0f) : ImGuiColors.DalamudGrey, item.Name);
                 
                 ImGui.SameLine();
                 ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 10);
@@ -270,7 +289,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.Separator();
                 if (item.IsUnlocked)
                 {
-                    ImGui.TextColored(ImGuiColors.HealerGreen, "Unlocked");
+                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Unlocked");
                 }
                 else
                 {

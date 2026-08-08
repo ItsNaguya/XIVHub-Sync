@@ -140,7 +140,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.Text("Would you like to clear the pipeline?");
                 ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
                 
-                if (ImGui.Button("Yes, Clear Pipeline", new Vector2(150f * PluginUI.AppScale, 30f * PluginUI.AppScale)))
+                if (UIHelper.DrawPremiumWarningButton("btn_clear_pipe_yes", ImGui.GetCursorScreenPos(), new Vector2(150f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Yes, Clear Pipeline"))
                 {
                     _configuration.CraftingActivePipeline.Clear();
                     _configuration.Save();
@@ -149,7 +149,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.CloseCurrentPopup();
                 }
                 ImGui.SameLine();
-                if (ImGui.Button("No, Keep It", new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale)))
+                if (UIHelper.DrawPremiumButton("btn_clear_pipe_no", ImGui.GetCursorScreenPos(), new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "No, Keep It", new Vector4(0.12f, 0.12f, 0.14f, 1f), new Vector4(0.2f, 0.2f, 0.22f, 1f), new Vector4(0.7f, 0.7f, 0.7f, 1f), Vector4.One))
                 {
                     _showPipelineCompletedPopup = false;
                     ImGui.CloseCurrentPopup();
@@ -228,7 +228,7 @@ namespace XIVHubCompanion.Apps
                     }
                     ImGui.SameLine();
                     ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawGarlondButton("##del_" + target.RecipeId, ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.6f, 0.1f, 0.1f, 1f), new Vector4(0.8f, 0.2f, 0.2f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("##del_" + target.RecipeId, ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.12f, 0.12f, 0.14f, 1f), new Vector4(0.83f, 0.69f, 0.22f, 1f), Vector4.One, Vector4.One))
                     {
                         _configuration.CraftingActivePipeline.RemoveAt(i);
                         i--;
@@ -244,7 +244,7 @@ namespace XIVHubCompanion.Apps
 
             if (pipelineChanged) _cachedRollup = null;
 
-            if (UIHelper.DrawGarlondButton("clearPipe", Vector2.Zero, new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), "Clear Pipeline", new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.3f, 1f), Vector4.One, Vector4.One))
+            if (UIHelper.DrawPremiumButton("clearPipe", Vector2.Zero, new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), "Clear Pipeline", new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.3f, 1f), Vector4.One, Vector4.One))
             {
                 _configuration.CraftingActivePipeline.Clear();
                 _configuration.Save();
@@ -425,7 +425,7 @@ namespace XIVHubCompanion.Apps
 
             // Fetch Button perfectly aligned to the right
             Vector2 btnPos = p + new Vector2(totalWidth - 140f * PluginUI.AppScale, 9f * PluginUI.AppScale);
-            if (UIHelper.DrawGarlondButton("fetchPrices", btnPos, new Vector2(130f * PluginUI.AppScale, 26f * PluginUI.AppScale), _isFetchingPrices ? "Fetching..." : "Fetch Prices", new Vector4(0.15f, 0.35f, 0.7f, 1f), new Vector4(0.25f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
+            if (UIHelper.DrawPremiumButton("fetchPrices", btnPos, new Vector2(130f * PluginUI.AppScale, 26f * PluginUI.AppScale), _isFetchingPrices ? "Fetching..." : "Fetch Prices", new Vector4(0.15f, 0.35f, 0.7f, 1f), new Vector4(0.25f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
             {
                 FetchPrices(_cachedRollup.Select(x => x.ItemId).ToList());
             }
@@ -649,7 +649,7 @@ namespace XIVHubCompanion.Apps
                 if (mat.Category == "Gathering" || mat.Category == "Timed Node" || mat.Category == "Crystals")
                 {
                     ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawGarlondButton("btn_route_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF277", new Vector4(0.2f, 0.4f, 0.2f, 1f), new Vector4(0.3f, 0.6f, 0.3f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("btn_route_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF277", new Vector4(0.2f, 0.4f, 0.2f, 1f), new Vector4(0.3f, 0.6f, 0.3f, 1f), Vector4.One, Vector4.One))
                     {
                         var existingRoute = _configuration.GatheringActiveRoute.FirstOrDefault(x => x.ItemId == mat.ItemId);
                         if (existingRoute == null)
@@ -671,7 +671,7 @@ namespace XIVHubCompanion.Apps
                     {
                         ImGui.SameLine();
                         ImGui.PushFont(UiBuilder.IconFont);
-                        if (UIHelper.DrawGarlondButton("btn_tp_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF3C5", new Vector4(0.6f, 0.2f, 0.6f, 1f), new Vector4(0.7f, 0.3f, 0.7f, 1f), Vector4.One, Vector4.One))
+                        if (UIHelper.DrawPremiumButton("btn_tp_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF3C5", new Vector4(0.6f, 0.2f, 0.6f, 1f), new Vector4(0.7f, 0.3f, 0.7f, 1f), Vector4.One, Vector4.One))
                         {
                             GatheringApp.TeleportToAetheryte(mat.AetheryteId);
                         }
@@ -690,7 +690,7 @@ namespace XIVHubCompanion.Apps
                 if (mat.Category != "Final")
                 {
                     ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawGarlondButton("btn_cart_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF07A", new Vector4(0.2f, 0.4f, 0.8f, 1f), new Vector4(0.3f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("btn_cart_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF07A", new Vector4(0.2f, 0.4f, 0.8f, 1f), new Vector4(0.3f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
                     {
                         MarketApp.OnAddToCart?.Invoke(new CartItem { id = (int)mat.ItemId, name = mat.Name, icon = mat.IconTexture != null ? $"/i/020000/{mat.IconId:000000}.png" : "", quantity = mat.Amount - mat.InventoryCount > 0 ? mat.Amount - mat.InventoryCount : 1, hq = false });
                     }
