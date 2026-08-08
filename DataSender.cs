@@ -558,7 +558,25 @@ namespace XIVHubCompanion
             }
             catch (Exception ex)
             {
-                _log.Error(ex, "Failed to fetch gathering nodes.");
+                _log.Error(ex, "Failed to fetch gathering nodes");
+            }
+            return null;
+        }
+
+        public async Task<string> FetchAquaticNodesAsync()
+        {
+            try
+            {
+                // During dev it could be xiv.naguya.tech/data/... or we can just point to the live server
+                var response = await _client.GetAsync($"https://xiv.naguya.tech/data/xhub_aquatic_nodes_v3.json?t={DateTime.UtcNow.Ticks}");
+                if (response.IsSuccessStatusCode)
+                {
+                    return await response.Content.ReadAsStringAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex, "Failed to fetch aquatic nodes");
             }
             return null;
         }

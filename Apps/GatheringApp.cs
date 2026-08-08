@@ -40,9 +40,51 @@ namespace XIVHubCompanion.Apps
         [JsonIgnore]
         public uint ItemId { get; set; }
         [JsonIgnore]
+        public ISharedImmediateTexture Texture { get; set; }
+        [JsonIgnore]
         public uint IconId { get; set; }
+    }
+
+    public class AquaticNode
+    {
+        public string name { get; set; }
+        public string fishType { get; set; }
+        public string bestSpot { get; set; }
+        public string bestZone { get; set; }
+        public int? bait { get; set; }
+        public string hookset { get; set; }
+        public string biteType { get; set; }
+        public string tug { get; set; }
+        public double? patch { get; set; }
+        public bool collectable { get; set; }
+        public string folklore { get; set; }
+        
+        [Newtonsoft.Json.JsonProperty("time")]
+        public List<double> _timeRaw { get; set; }
+        
+        [Newtonsoft.Json.JsonIgnore]
+        public List<int> time { 
+            get { return _timeRaw?.Select(x => (int)x).ToList(); } 
+            set { _timeRaw = value?.Select(x => (double)x).ToList(); } 
+        }
+        
+        public List<int> weathers { get; set; }
+        public List<int> previousWeathers { get; set; }
+        public List<int> mooch { get; set; }
+        public List<int> moochPath { get; set; }
+        public bool? snagging { get; set; }
+        public bool? fishEyes { get; set; }
+        public int? intuitionLength { get; set; }
+        public bool? bigFish { get; set; }
+
+        [JsonIgnore]
+        public uint ItemId { get; set; }
         [JsonIgnore]
         public ISharedImmediateTexture Texture { get; set; }
+        [JsonIgnore]
+        public string BaitName { get; set; }
+        [JsonIgnore]
+        public List<string> MoochNames { get; set; } = new();
     }
 
     public class GatheringLogItem
@@ -165,17 +207,17 @@ namespace XIVHubCompanion.Apps
 
     public class GatheringApp : IApp
     {
-        public string Name => "Gathering";
+        public string Name => "Gathering & Fishing";
         public string Icon => ((char)Dalamud.Interface.FontAwesomeIcon.Leaf).ToString();
         public bool HasSettings => true;
         public void DrawSettings() 
         {
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(new Vector4(0.13f, 0.77f, 0.36f, 1.0f), "Notifications");
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Notifications");
             ImGui.Dummy(new Vector2(0, 5));
             
             bool notif = _configuration.EnableNodeNotifications;
-            if (UIHelper.DrawGarlondSwitchWithText("chk_notif", "Enable Node Chat Notifications", ref notif))
+            if (UIHelper.DrawPremiumSwitchWithText("chk_notif", "Enable Node Chat Notifications", ref notif))
             {
                 _configuration.EnableNodeNotifications = notif;
                 _configuration.Save();
@@ -185,7 +227,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.Indent(30f);
                 
                 bool audio = _configuration.EnableNodeAudio;
-                if (UIHelper.DrawGarlondSwitchWithText("chk_notif_audio", "Play Audio Alert (<se.1>)", ref audio))
+                if (UIHelper.DrawPremiumSwitchWithText("chk_notif_audio", "Play Audio Alert (<se.1>)", ref audio))
                 {
                     _configuration.EnableNodeAudio = audio;
                     _configuration.Save();
@@ -202,6 +244,52 @@ namespace XIVHubCompanion.Apps
                 }
                 ImGui.Unindent(30f);
             }
+        }
+
+        private Dictionary<uint, (DateTime start, DateTime end)?> _fishUptimesCache = new();
+        private DateTime _lastFishUptimeUpdate = DateTime.MinValue;
+
+        private void UpdateFishUptimesCache()
+        {
+            if ((DateTime.Now - _lastFishUptimeUpdate).TotalSeconds < 30) return;
+            
+            var territories = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>();
+            if (territories == null) return;
+            
+            DateTime now = DateTime.UtcNow;
+
+            foreach (var f in AquaticNodes)
+            {
+                if ((f.time == null || f.time.Count == 0) && (f.weathers == null || f.weathers.Count == 0))
+                {
+                    _fishUptimesCache[f.ItemId] = null;
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(f.bestZone)) continue;
+                var cleanZone = f.bestZone.Replace("'", "").Replace(" ", "");
+                
+                Lumina.Excel.Sheets.TerritoryType? terr = null;
+                foreach (var territory in territories)
+                {
+                    if (territory.Map.RowId == 0) continue;
+                    var placeName = territory.PlaceName.Value;
+                    var cleanPlace = placeName.Name.ToString().Replace("'", "").Replace(" ", "");
+                    
+                    if (cleanPlace.Contains(cleanZone, StringComparison.OrdinalIgnoreCase))
+                    {
+                        terr = territory;
+                        break;
+                    }
+                }
+
+                if (terr.HasValue)
+                {
+                    _fishUptimesCache[f.ItemId] = WeatherPredictor.GetNextUptime(terr.Value, f.time, f.weathers, null, now, 14);
+                }
+            }
+            
+            _lastFishUptimeUpdate = DateTime.Now;
         }
 
         private readonly DataSender _sender;
@@ -223,7 +311,11 @@ namespace XIVHubCompanion.Apps
 
         public static List<GatheringNode> Nodes = new();
         private List<List<GatheringLogBracket>> _logPages = new();
+        private bool _isDataLoaded = false;
         private bool _isLoading = false;
+
+        public List<AquaticNode> AquaticNodes { get; private set; } = new();
+        private Dictionary<uint, (bool isSpear, uint rowId)> _fishMapping = new();
         
         // Filters
         private HashSet<string> _filterClass = new() { "MIN", "BTN" };
@@ -374,7 +466,6 @@ namespace XIVHubCompanion.Apps
 
         private async Task LoadDataAsync()
         {
-            _isLoading = true;
             try
             {
                 var itemsSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
@@ -408,6 +499,66 @@ namespace XIVHubCompanion.Apps
                     DataNodesMap = JsonConvert.DeserializeObject<Dictionary<string, DataNode>>(dataNodesJson);
                 }
 
+                // Setup Fish Mapping
+                var fishSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.FishParameter>();
+                if (fishSheet != null) {
+                    foreach(var fish in fishSheet) {
+                        if (fish.Item.RowId != 0) _fishMapping[fish.Item.RowId] = (false, fish.RowId);
+                    }
+                }
+                var spearSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.SpearfishingItem>();
+                if (spearSheet != null) {
+                    foreach(var fish in spearSheet) {
+                        if (fish.Item.RowId != 0) _fishMapping[fish.Item.RowId] = (true, fish.RowId);
+                    }
+                }
+
+                string aquaticJson = await _sender.FetchAquaticNodesAsync();
+                if (aquaticJson != null) {
+                    var settings = new JsonSerializerSettings {
+                        FloatParseHandling = FloatParseHandling.Decimal
+                    };
+                    var dict = JsonConvert.DeserializeObject<Dictionary<string, AquaticNode>>(aquaticJson, settings);
+                    var itemSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+
+                    foreach (var kvp in dict) {
+                        if (uint.TryParse(kvp.Key, out uint id)) {
+                            var node = kvp.Value;
+                            node.ItemId = id;
+                            if (itemSheet != null) { var texRow = itemSheet.GetRow(id); if (texRow.RowId != 0) node.Texture = _textureProvider.GetFromGameIcon(new Dalamud.Interface.Textures.GameIconLookup(texRow.Icon)); }
+                            if (string.IsNullOrEmpty(node.name) && itemSheet != null) {
+                                var iRow = itemSheet.GetRow(id);
+                                if (iRow.RowId != 0) {
+                                    node.name = iRow.Name.ToString();
+                                }
+                            }
+                            if (string.IsNullOrEmpty(node.name)) node.name = $"Unknown Fish ({id})";
+
+                            if (itemSheet != null)
+                            {
+                                if (node.bait.HasValue && node.bait.Value != 0)
+                                {
+                                    var bRow = itemSheet.GetRow((uint)node.bait.Value);
+                                    if (bRow.RowId != 0) node.BaitName = bRow.Name.ToString();
+                                }
+                                if (node.mooch != null)
+                                {
+                                    foreach(var m in node.mooch)
+                                    {
+                                        var mRow = itemSheet.GetRow((uint)m);
+                                        if (mRow.RowId != 0) node.MoochNames.Add(mRow.Name.ToString());
+                                    }
+                                }
+                            }
+
+                            AquaticNodes.Add(node);
+                        }
+                    }
+                    AquaticNodes.Sort((a,b) => string.Compare(a.name ?? "", b.name ?? ""));
+                }
+
+                _isDataLoaded = true;
+
                 // Load Log Pages
                 string pagesJson = await _sender.FetchGatheringLogPagesAsync();
                 if (!string.IsNullOrEmpty(pagesJson))
@@ -440,7 +591,7 @@ namespace XIVHubCompanion.Apps
             }
             finally
             {
-                _isLoading = false;
+                // we leave this empty or restore _isLoading if needed
             }
         }
 
@@ -513,13 +664,16 @@ namespace XIVHubCompanion.Apps
             ImGui.Separator();
 
             // Tabs
-            float mainTabW = 160f * PluginUI.AppScale;
-            if (DrawPremiumButton("Timed World Nodes", _viewMode == "timed", mainTabW)) _viewMode = "timed";
-            ImGui.SameLine();
-            if (DrawPremiumButton("Direct Item Search", _viewMode == "search", mainTabW)) _viewMode = "search";
-            ImGui.SameLine();
-            if (DrawPremiumButton("Gathering Route", _viewMode == "route", mainTabW)) _viewMode = "route";
-            ImGui.Separator();
+            string[] tabs = new string[] { "Timed World Nodes", "Direct Item Search", "Gathering Route", "Fishing" };
+            int activeIdx = _viewMode == "timed" ? 0 : (_viewMode == "search" ? 1 : (_viewMode == "route" ? 2 : 3));
+            if (UIHelper.DrawPremiumTabSegment(tabs, ref activeIdx, ImGui.GetContentRegionAvail().X))
+            {
+                if (activeIdx == 0) _viewMode = "timed";
+                else if (activeIdx == 1) _viewMode = "search";
+                else if (activeIdx == 2) _viewMode = "route";
+                else if (activeIdx == 3) _viewMode = "fishing";
+            }
+            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
 
             if (_viewMode == "timed")
             {
@@ -540,63 +694,77 @@ namespace XIVHubCompanion.Apps
             {
                 DrawRouteTab();
             }
+            else if (_viewMode == "fishing")
+            {
+                DrawFishingTab();
+            }
         }
+
+        private string _directSearchText = "";
 
         private void DrawSearchTab()
         {
             ImGui.Columns(2, "SearchColumns", true);
-            ImGui.SetColumnWidth(0, 200f * PluginUI.AppScale);
+            ImGui.SetColumnWidth(0, 250f * PluginUI.AppScale);
 
-            // Left Side: Class Selection and Brackets
-            float btnW = (200f * PluginUI.AppScale - 24f * PluginUI.AppScale) / 2f;
-            if (DrawPremiumButton("Miner", _searchSelectedTab == 0, btnW))
+            // Left Side: Search Input and Class Selection
+            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Item Search");
+            ImGui.Dummy(new Vector2(0, 5));
+            UIHelper.DrawPremiumInputText("txt_direct_search", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X - 10, 35f * PluginUI.AppScale), ref _directSearchText, 64);
+            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
+            
+            string[] classTabs = new string[] { "Miner", "Botanist" };
+            if (UIHelper.DrawPremiumTabSegment(classTabs, ref _searchSelectedTab, ImGui.GetContentRegionAvail().X - 10))
             {
-                _searchSelectedTab = 0;
                 RebuildBrackets();
             }
-            ImGui.SameLine();
-            if (DrawPremiumButton("Botanist", _searchSelectedTab == 1, btnW))
-            {
-                _searchSelectedTab = 1;
-                RebuildBrackets();
-            }
+            ImGui.Dummy(new Vector2(0, 10));
 
             ImGui.Spacing();
-            UIHelper.BeginSmoothChild("BracketList", new Vector2(-1, -1), true);
-            foreach (var exp in _expansionGroups)
+            bool hasSearch = !string.IsNullOrWhiteSpace(_directSearchText);
+            
+            if (!hasSearch)
             {
-                ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.2f, 0.2f, 0.2f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.3f, 0.3f, 0.3f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(0.15f, 0.15f, 0.15f, 1f));
-                bool isOpen = ImGui.CollapsingHeader(exp.Name, ImGuiTreeNodeFlags.DefaultOpen);
-                ImGui.PopStyleColor(3);
-
-                if (isOpen)
+                UIHelper.BeginSmoothChild("BracketList", new Vector2(-1, -1), true);
+                foreach (var exp in _expansionGroups)
                 {
-                    foreach (var b in exp.Brackets)
+                    ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.2f, 0.2f, 0.2f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.3f, 0.3f, 0.3f, 1f));
+                    ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(0.15f, 0.15f, 0.15f, 1f));
+                    bool isOpen = ImGui.CollapsingHeader(exp.Name, ImGuiTreeNodeFlags.DefaultOpen);
+                    ImGui.PopStyleColor(3);
+
+                    if (isOpen)
                     {
-                        string lvlStr = b.StartLevel == 1 ? "Lv. 1-5" : $"Lv. {b.StartLevel}-{b.StartLevel + 4}";
-                        bool isSelected = (_currentBrackets.IndexOf(b) == _searchSelectedBracket);
-                        
-                        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.15f, 0.4f, 0.2f, 0.6f));
-                        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.2f, 0.5f, 0.25f, 0.7f));
-                        ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(0.1f, 0.3f, 0.15f, 0.8f));
-                        if (ImGui.Selectable(lvlStr, isSelected))
+                        foreach (var b in exp.Brackets)
                         {
-                            _searchSelectedBracket = _currentBrackets.IndexOf(b);
+                            string lvlStr = b.StartLevel == 1 ? "Lv. 1-5" : $"Lv. {b.StartLevel}-{b.StartLevel + 4}";
+                            bool isSelected = (_currentBrackets.IndexOf(b) == _searchSelectedBracket);
+                            
+                            ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.0f, 0.65f, 1.0f, 0.6f));
+                            ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.0f, 0.75f, 1.0f, 0.7f));
+                            ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(0.0f, 0.55f, 1.0f, 0.8f));
+                            if (ImGui.Selectable(lvlStr, isSelected))
+                            {
+                                _searchSelectedBracket = _currentBrackets.IndexOf(b);
+                            }
+                            ImGui.PopStyleColor(3);
                         }
-                        ImGui.PopStyleColor(3);
                     }
                 }
+                ImGui.EndChild();
             }
-            ImGui.EndChild();
+            else
+            {
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), "Search results...");
+            }
 
             ImGui.NextColumn();
 
             
             if (_configuration.EnableGatheringPrices)
             {
-                if (ImGui.Button("Fetch Prices##search", new System.Numerics.Vector2(100, 24)))
+                if (UIHelper.DrawPremiumButton("btn_fetch_prices", ImGui.GetCursorScreenPos(), new Vector2(100, 24), "Fetch Prices", new Vector4(0.12f, 0.12f, 0.14f, 1f), new Vector4(0.0f, 0.65f, 1.0f, 1f), new Vector4(1,1,1,1), new Vector4(1,1,1,1)))
                 {
                     if (_currentBrackets.Count > 0 && _searchSelectedBracket < _currentBrackets.Count)
                     {
@@ -612,7 +780,6 @@ namespace XIVHubCompanion.Apps
                             var liveNode = Nodes.FirstOrDefault(n => n.ItemId == dbItem.itemId);
                             if (liveNode != null) visibleNodes.Add(liveNode);
                             else {
-                                // For standard nodes that aren't in Nodes
                                 visibleNodes.Add(new GatheringNode { ItemId = dbItem.itemId });
                             }
                         }
@@ -629,20 +796,35 @@ namespace XIVHubCompanion.Apps
 
             // Right Side: Items in Bracket
             UIHelper.BeginSmoothChild("BracketItems", new System.Numerics.Vector2(-1, -1), true);
-            if (_currentBrackets.Count > 0 && _searchSelectedBracket < _currentBrackets.Count)
+            
+            if (hasSearch)
+            {
+                var lowerQuery = _directSearchText.ToLower();
+                var matchingItems = new List<GatheringLogItem>();
+                foreach (var b in _currentBrackets)
+                {
+                    matchingItems.AddRange(b.Category1.Where(i => i.Name != null && i.Name.ToLower().Contains(lowerQuery)));
+                    matchingItems.AddRange(b.Category2.Where(i => i.Name != null && i.Name.ToLower().Contains(lowerQuery)));
+                }
+                
+                ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), $"Search Results ({matchingItems.Count})");
+                ImGui.Separator();
+                DrawCategoryItems(matchingItems);
+            }
+            else if (_currentBrackets.Count > 0 && _searchSelectedBracket < _currentBrackets.Count)
             {
                 var bracket = _currentBrackets[_searchSelectedBracket];
                 
                 string cat1Name = _searchSelectedTab == 0 ? "Mining" : "Logging";
                 string cat2Name = _searchSelectedTab == 0 ? "Quarrying" : "Harvesting";
                 
-                ImGui.TextColored(new Vector4(1f, 0.8f, 0f, 1f), cat1Name);
+                ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), cat1Name);
                 ImGui.Separator();
                 DrawCategoryItems(bracket.Category1);
                 
                 ImGui.Spacing();
                 
-                ImGui.TextColored(new Vector4(1f, 0.8f, 0f, 1f), cat2Name);
+                ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), cat2Name);
                 ImGui.Separator();
                 DrawCategoryItems(bracket.Category2);
             }
@@ -902,6 +1084,16 @@ namespace XIVHubCompanion.Apps
                 zoneName = liveNode.zone;
                 coords = liveNode.coords;
                 foundInNodes = true;
+            }
+
+            if (!foundInNodes)
+            {
+                var fNode = AquaticNodes.FirstOrDefault(n => n.ItemId == itemId);
+                if (fNode != null)
+                {
+                    zoneName = fNode.bestZone;
+                    foundInNodes = true;
+                }
             }
 
             // Then try DataNodesMap to get the actual mapId and exact coords
@@ -1176,6 +1368,302 @@ namespace XIVHubCompanion.Apps
             return null; // only waiting timed nodes left
         }
 
+        private unsafe bool IsFishCaught(uint itemId) {
+            if (!_fishMapping.TryGetValue(itemId, out var mapping)) return false;
+            var ps = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+            if (ps == null) return false;
+            
+            var offset = mapping.rowId / 8;
+            var bit = (byte)(mapping.rowId % 8);
+            
+            if (mapping.isSpear) {
+                if (ps->CaughtSpearfishBitArray.Pointer == null) return false;
+                return ((ps->CaughtSpearfishBitArray.Pointer[offset] >> bit) & 1) == 1;
+            } else {
+                if (ps->CaughtFishBitArray.Pointer == null) return false;
+                return ((ps->CaughtFishBitArray.Pointer[offset] >> bit) & 1) == 1;
+            }
+        }
+
+        private string _fishSearch = "";
+        private Dictionary<uint, float> _fishAnimState = new();
+        private Dictionary<uint, float> _fishIconScale = new();
+        private bool _fishHideCaught = false;
+        private int _fishSortMode = 0; // 0 = Alphabetical, 1 = Uptime, 2 = Patch
+        
+        private void DrawFishingTab()
+        {
+            UpdateFishUptimesCache();
+            DateTime now = DateTime.UtcNow;
+
+            ImGui.BeginGroup();
+            ImGui.InputTextWithHint("##fish_search", "Search Fish...", ref _fishSearch, 300);
+            ImGui.SameLine();
+            ImGui.Checkbox("Hide Caught", ref _fishHideCaught);
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(180);
+            ImGui.Combo("Sort By", ref _fishSortMode, new string[] { "Alphabetical (A-Z)", "Uptime (Active First)", "Patch (Newest First)" }, 3);
+            ImGui.EndGroup();
+            
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            // Premium custom UI - using cards instead of standard table
+            ImGuiWindowFlags childFlags = ImGuiWindowFlags.None;
+            if (!_configuration.HideScrollbars)
+                childFlags |= ImGuiWindowFlags.AlwaysVerticalScrollbar;
+
+            ImGui.BeginChild("FishingDirectoryList", new Vector2(0, 0), false, childFlags);
+            
+            var weatherSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Weather>();
+            
+            List<AquaticNode> sortedNodes;
+              if (_fishSortMode == 1)
+              {
+                  sortedNodes = AquaticNodes.OrderBy(f => {
+                      var uptime1 = _fishUptimesCache.ContainsKey(f.ItemId) ? _fishUptimesCache[f.ItemId] : null;
+                      if (uptime1 == null) return 2;
+                      if (now >= uptime1.Value.start && now < uptime1.Value.end) return 0;
+                      return 1;
+                  }).ThenBy(f => {
+                      var uptime2 = _fishUptimesCache.ContainsKey(f.ItemId) ? _fishUptimesCache[f.ItemId] : null;
+                      if (uptime2 == null) return 0.0;
+                      if (now >= uptime2.Value.start && now < uptime2.Value.end) return (uptime2.Value.end - now).TotalSeconds;
+                      return (uptime2.Value.start - now).TotalSeconds;
+                  }).ThenBy(f => f.name ?? "").ToList();
+              }
+              else if (_fishSortMode == 2)
+              {
+                  sortedNodes = AquaticNodes.OrderByDescending(f => f.patch.HasValue ? f.patch.Value : 0.0).ThenBy(f => f.name ?? "").ToList();
+              }
+              else
+              {
+                  sortedNodes = AquaticNodes.OrderBy(f => f.name ?? "").ToList();
+              }            foreach (var f in sortedNodes)
+            {
+                bool caught = IsFishCaught(f.ItemId);
+                if (_fishHideCaught && caught) continue;
+
+                string nameLower = f.name?.ToLower() ?? "";
+                string spotLower = f.bestSpot?.ToLower() ?? "";
+                string zoneLower = f.bestZone?.ToLower() ?? "";
+                string baitLower = f.BaitName?.ToLower() ?? "";
+                string searchLower = _fishSearch.ToLower();
+
+                if (!string.IsNullOrEmpty(_fishSearch) && !nameLower.Contains(searchLower) && !spotLower.Contains(searchLower) && !zoneLower.Contains(searchLower) && !baitLower.Contains(searchLower)) 
+                    continue;
+
+                Vector2 p = ImGui.GetCursorScreenPos();
+                float width = ImGui.GetContentRegionAvail().X;
+                
+                string timeStatus = "Always Available";
+                Vector4 statusColor = new Vector4(0.5f, 0.9f, 0.5f, 1f);
+                bool isUp = false;
+                
+                if (_fishUptimesCache.TryGetValue(f.ItemId, out var uptime) && uptime != null)
+                {
+                    if (now >= uptime.Value.start && now < uptime.Value.end)
+                    {
+                        isUp = true;
+                        var remaining = uptime.Value.end - now;
+                        timeStatus = string.Format("Active {0}m {1}s", remaining.Minutes, remaining.Seconds);
+                        statusColor = new Vector4(0.2f, 1f, 0.2f, 1f);
+                    }
+                    else
+                    {
+                        var wait = uptime.Value.start - now;
+                        string waitStr = wait.TotalDays >= 1 ? string.Format("in {0}d {1}h", (int)wait.TotalDays, wait.Hours) : 
+                                         wait.TotalHours >= 1 ? string.Format("in {0}h {1}m", wait.Hours, wait.Minutes) : 
+                                         string.Format("in {0}m {1}s", wait.Minutes, wait.Seconds);
+                        timeStatus = string.Format("Upcoming {0}", waitStr);
+                        statusColor = new Vector4(1f, 0.5f, 0.1f, 1f);
+                    }
+                }
+                
+                ImGui.PushStyleColor(ImGuiCol.Header, isUp ? new Vector4(0.1f, 0.3f, 0.4f, 0.6f) : new Vector4(0.12f, 0.12f, 0.15f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(1f, 1f, 1f, 0.1f));
+                ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(1f, 1f, 1f, 0.15f));
+                
+                bool isBig = f.bigFish.HasValue && f.bigFish.Value;
+                Vector4 nameColor = isBig ? new Vector4(1f, 0.85f, 0.3f, 1f) : new Vector4(0.9f, 0.9f, 0.9f, 1f);
+                ImGui.PushStyleColor(ImGuiCol.Text, nameColor);
+
+                float iconSize = 20f * PluginUI.AppScale;
+                string fishLabel = caught ? string.Format("       {0} {1}", (char)Dalamud.Interface.FontAwesomeIcon.CheckCircle, f.name) : string.Format("       {0}", f.name);
+                
+                Vector2 iconPos = ImGui.GetCursorScreenPos();
+                bool expanded = ImGui.CollapsingHeader(string.Format("{0}###fish_{1}", fishLabel, f.ItemId));
+                
+                // Animation states
+                float dt = ImGui.GetIO().DeltaTime;
+                
+                float animTarget = expanded ? 1f : 0f;
+                float currentAnim = _fishAnimState.ContainsKey(f.ItemId) ? _fishAnimState[f.ItemId] : 0f;
+                _fishAnimState[f.ItemId] = currentAnim + (animTarget - currentAnim) * (dt * 15f);
+                float anim = _fishAnimState[f.ItemId];
+                
+                Vector2 iconMin = iconPos + new Vector2(24f * PluginUI.AppScale, 2f * PluginUI.AppScale);
+                Vector2 iconMax = iconMin + new Vector2(iconSize, iconSize);
+                bool iconHovered = ImGui.IsMouseHoveringRect(iconMin, iconMax);
+                float scaleTarget = iconHovered ? 1.5f : 1f;
+                float currentScale = _fishIconScale.ContainsKey(f.ItemId) ? _fishIconScale[f.ItemId] : 1f;
+                _fishIconScale[f.ItemId] = currentScale + (scaleTarget - currentScale) * (dt * 15f);
+                float iconScale = _fishIconScale[f.ItemId];
+                
+                if (f.Texture != null && f.Texture.GetWrapOrDefault() != null)
+                {
+                    float scaledSize = iconSize * iconScale;
+                    Vector2 center = iconMin + new Vector2(iconSize / 2f, iconSize / 2f);
+                    ImGui.GetWindowDrawList().AddImage(f.Texture.GetWrapOrDefault().Handle, center - new Vector2(scaledSize / 2f, scaledSize / 2f), center + new Vector2(scaledSize / 2f, scaledSize / 2f));
+                }
+                
+                ImGui.PopStyleColor(4);
+                
+                ImGui.SameLine(width - 150f * PluginUI.AppScale);
+                ImGui.TextColored(statusColor, timeStatus);
+                
+                if (anim > 0.01f)
+                {
+                    ImGui.Indent();
+                    
+                    ImGui.PushStyleVar(ImGuiStyleVar.Alpha, anim);
+                    ImGui.BeginChild(string.Format("fishChild_{0}", f.ItemId), new Vector2(0, 160f * PluginUI.AppScale * anim), false, ImGuiWindowFlags.NoScrollbar);
+                    
+                    if (ImGui.BeginTable(string.Format("fishDetails_{0}", f.ItemId), 2, ImGuiTableFlags.BordersInnerV))
+                    {
+                        ImGui.TableSetupColumn("Requirements", ImGuiTableColumnFlags.WidthStretch, 1.5f);
+                        ImGui.TableSetupColumn("Location", ImGuiTableColumnFlags.WidthStretch, 1f);
+                        
+                        ImGui.TableNextRow();
+                        ImGui.TableNextColumn();
+                        
+                        if (f.time != null && f.time.Count == 2)
+                        {
+                            ImGui.TextColored(new Vector4(0.4f, 0.8f, 1f, 1f), string.Format("Time: {0:D2}:00 - {1:D2}:00", f.time[0]/60, f.time[1]/60));
+                        }
+                        
+                        if (f.weathers != null && f.weathers.Count > 0)
+                        {
+                            string weatherStr = string.Join(", ", f.weathers.Select(w => weatherSheet?.GetRowOrDefault((uint)w)?.Name.ToString() ?? w.ToString()));
+                            if (f.previousWeathers != null && f.previousWeathers.Count > 0)
+                            {
+                                string prevStr = string.Join(", ", f.previousWeathers.Select(w => weatherSheet?.GetRowOrDefault((uint)w)?.Name.ToString() ?? w.ToString()));
+                                ImGui.TextColored(new Vector4(0.8f, 0.4f, 1f, 1f), string.Format("Weather: [{0}] -> [{1}]", prevStr, weatherStr));
+                            }
+                            else
+                            {
+                                ImGui.TextColored(new Vector4(0.8f, 0.4f, 1f, 1f), string.Format("Weather: [{0}]", weatherStr));
+                            }
+                        }
+                        
+                        ImGui.Dummy(new Vector2(0, 5));
+                        ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
+                        if (caught)
+                        {
+                            ImGui.TextColored(new Vector4(0.2f, 1f, 0.2f, 1f), ((char)Dalamud.Interface.FontAwesomeIcon.CheckCircle).ToString());
+                            ImGui.PopFont();
+                            ImGui.SameLine();
+                            ImGui.TextColored(new Vector4(0.2f, 1f, 0.2f, 1f), "Status: Caught");
+                        }
+                        else
+                        {
+                            ImGui.TextColored(new Vector4(1f, 0.2f, 0.2f, 1f), ((char)Dalamud.Interface.FontAwesomeIcon.TimesCircle).ToString());
+                            ImGui.PopFont();
+                            ImGui.SameLine();
+                            ImGui.TextColored(new Vector4(1f, 0.2f, 0.2f, 1f), "Status: Not Caught");
+                        }
+                        string baitStr = "";
+                        if (f.BaitName != null)
+                        {
+                            baitStr = f.BaitName;
+                        }
+                        if (f.MoochNames != null && f.MoochNames.Count > 0)
+                        {
+                            if (!string.IsNullOrEmpty(baitStr)) baitStr += " -> ";
+                            baitStr += string.Join(" -> ", f.MoochNames);
+                        }
+                        if (string.IsNullOrEmpty(baitStr)) baitStr = "Unknown";
+                        ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), string.Format("Bait: {0}", baitStr));
+                        
+                        if (!string.IsNullOrEmpty(f.hookset))
+                        {
+                            bool isPrec = f.hookset.Contains("Precision");
+                            ImGui.TextColored(isPrec ? new Vector4(0.4f, 1f, 0.4f, 1f) : new Vector4(1f, 0.4f, 0.4f, 1f), f.hookset);
+                            ImGui.SameLine();
+                        }
+                        
+                        if (!string.IsNullOrEmpty(f.tug) || !string.IsNullOrEmpty(f.biteType))
+                        {
+                            ImGui.TextColored(new Vector4(1f, 1f, 0.2f, 1f), string.Format("Bite: {0}", f.tug ?? f.biteType));
+                        }
+                        else
+                        {
+                            ImGui.NewLine();
+                        }
+                        
+                        if (f.snagging.HasValue && f.snagging.Value)
+                        {
+                            ImGui.TextColored(new Vector4(0.4f, 0.6f, 1f, 1f), "Requires Snagging");
+                        }
+                        if (f.fishEyes.HasValue && f.fishEyes.Value)
+                        {
+                            ImGui.TextColored(new Vector4(0.2f, 0.8f, 1f, 1f), "Requires Fish Eyes");
+                        }
+                        if (f.intuitionLength.HasValue)
+                        {
+                            ImGui.TextColored(new Vector4(1f, 0.4f, 0.6f, 1f), string.Format("Fisher's Intuition ({0}m)", f.intuitionLength.Value));
+                        }
+                        
+                        ImGui.TableNextColumn();
+                        
+                        ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), f.bestZone ?? "Unknown Zone");
+                        ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), f.bestSpot ?? "Unknown Spot");
+                        
+                        if (f.patch > 0)
+                        {
+                            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), string.Format("Patch {0:F1}", f.patch));
+                        }
+                        if (f.collectable)
+                        {
+                            ImGui.TextColored(new Vector4(0.4f, 0.7f, 1f, 1f), "Collectable");
+                        }
+
+                        if (ImGui.Button(string.Format("Show on Map##map_{0}", f.ItemId)))
+                        {
+                            TryCreateMapLinkForItem(f.ItemId);
+                        }
+                        
+                        if (TryGetLocationForItem(f.ItemId, out _, out int mapId, out _, out _, out _, out _, out _))
+                        {
+                            uint aethId = mapId > 0 ? GetAetheryteIdForMap(mapId) : 0;
+                            if (aethId > 0)
+                            {
+                                ImGui.SameLine();
+                                ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
+                                if (ImGui.Button($"{((char)Dalamud.Interface.FontAwesomeIcon.PlaneDeparture)}##tp_{f.ItemId}"))
+                                {
+                                    TeleportToAetheryte(aethId);
+                                }
+                                ImGui.PopFont();
+                                DrawTeleportTooltip(aethId);
+                            }
+                        }
+                        
+                        ImGui.EndTable();
+                    }
+                    
+                    ImGui.EndChild();
+                    ImGui.PopStyleVar();
+                    
+                    ImGui.Unindent();
+                    ImGui.Dummy(new Vector2(0, 4));
+                }
+            }
+  
+              ImGui.EndChild();
+        }
+
                         private void DrawRouteTab()
         {
             if (_shouldOpenMapLink && !_condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.BetweenAreas])
@@ -1196,7 +1684,7 @@ namespace XIVHubCompanion.Apps
             ImGui.BeginGroup();
             if (!_isRouteRunning)
             {
-                                if (UIHelper.DrawGarlondButton("btn_start_route", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Start Route", new System.Numerics.Vector4(0.1f, 0.6f, 0.2f, 1f), new System.Numerics.Vector4(0.2f, 0.8f, 0.3f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
+                                if (UIHelper.DrawPremiumButton("btn_start_route", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Start Route", new System.Numerics.Vector4(0.1f, 0.6f, 0.2f, 1f), new System.Numerics.Vector4(0.2f, 0.8f, 0.3f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
                 {
                     _isRouteRunning = true;
                     if (!_configuration.IsManualRouteOverride)
@@ -1226,14 +1714,14 @@ namespace XIVHubCompanion.Apps
             }
             else
             {
-                if (UIHelper.DrawGarlondButton("btn_pause_route", ImGui.GetCursorScreenPos(), new Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Pause Route", new Vector4(0.8f, 0.5f, 0.1f, 1f), new Vector4(0.9f, 0.6f, 0.2f, 1f), new Vector4(1,1,1,1), new Vector4(1,1,1,1)))
+                if (UIHelper.DrawPremiumButton("btn_pause_route", ImGui.GetCursorScreenPos(), new Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Pause Route", new Vector4(0.8f, 0.5f, 0.1f, 1f), new Vector4(0.9f, 0.6f, 0.2f, 1f), new Vector4(1,1,1,1), new Vector4(1,1,1,1)))
                 {
                     _isRouteRunning = false;
                 }
             }
             
             ImGui.SameLine();
-            if (UIHelper.DrawGarlondButton("btn_cancel_route", ImGui.GetCursorScreenPos(), new Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Cancel Route", new Vector4(0.7f, 0.2f, 0.2f, 1f), new Vector4(0.9f, 0.3f, 0.3f, 1f), new Vector4(1,1,1,1), new Vector4(1,1,1,1)))
+            if (UIHelper.DrawPremiumButton("btn_cancel_route", ImGui.GetCursorScreenPos(), new Vector2(100f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Cancel Route", new Vector4(0.7f, 0.2f, 0.2f, 1f), new Vector4(0.9f, 0.3f, 0.3f, 1f), new Vector4(1,1,1,1), new Vector4(1,1,1,1)))
             {
                 _showCancelConfirm = true;
             }
@@ -1241,7 +1729,7 @@ namespace XIVHubCompanion.Apps
             
             if (_showCancelConfirm)
             {
-                ImGui.TextColored(new Vector4(1f, 0.3f, 0.3f, 1f), "Are you sure you want to cancel and reset the route?");
+                ImGui.TextColored(new Vector4(0.93f, 0.79f, 0.32f, 1f), "Are you sure you want to cancel and reset the route?");
                 if (ImGui.Button("Yes, Cancel", new Vector2(100, 24)))
                 {
                     _isRouteRunning = false;
@@ -1494,7 +1982,7 @@ namespace XIVHubCompanion.Apps
             float boxH = 100f * PluginUI.AppScale;
             
             ImGui.GetWindowDrawList().AddRectFilled(p, new System.Numerics.Vector2(p.X + availW, p.Y + boxH), ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.1f, 0.25f, 0.1f, 0.9f)), 8f);
-            ImGui.GetWindowDrawList().AddRect(p, new System.Numerics.Vector2(p.X + availW, p.Y + boxH), ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.2f, 0.8f, 0.2f, 1f)), 8f, 0, 2f);
+            ImGui.GetWindowDrawList().AddRect(p, new System.Numerics.Vector2(p.X + availW, p.Y + boxH), ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.0f, 0.65f, 1.0f, 1f)), 8f, 0, 2f);
             
             ImGui.SetCursorScreenPos(new System.Numerics.Vector2(p.X + 15f * PluginUI.AppScale, p.Y + 10f * PluginUI.AppScale));
             
@@ -1516,7 +2004,7 @@ namespace XIVHubCompanion.Apps
                     
                     if (_popupNextAetheryteId > 0)
                     {
-                        if (UIHelper.DrawGarlondButton("btn_tp_now", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Teleport Now", new System.Numerics.Vector4(0.1f, 0.4f, 0.8f, 1f), new System.Numerics.Vector4(0.2f, 0.5f, 0.9f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
+                        if (UIHelper.DrawPremiumButton("btn_tp_now", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Teleport Now", new System.Numerics.Vector4(0.1f, 0.4f, 0.8f, 1f), new System.Numerics.Vector4(0.2f, 0.5f, 0.9f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
                         {
                             TeleportToAetheryte(_popupNextAetheryteId);
                             _showIntegratedZoneGuidance = false;
@@ -1530,7 +2018,7 @@ namespace XIVHubCompanion.Apps
             }
             
             ImGui.SetCursorScreenPos(new System.Numerics.Vector2(p.X + availW - 135f * PluginUI.AppScale, p.Y + 60f * PluginUI.AppScale));
-            if (UIHelper.DrawGarlondButton("btn_tp_close", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Dismiss", new System.Numerics.Vector4(0.3f, 0.3f, 0.3f, 1f), new System.Numerics.Vector4(0.4f, 0.4f, 0.4f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
+            if (UIHelper.DrawPremiumButton("btn_tp_close", ImGui.GetCursorScreenPos(), new System.Numerics.Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Dismiss", new System.Numerics.Vector4(0.3f, 0.3f, 0.3f, 1f), new System.Numerics.Vector4(0.4f, 0.4f, 0.4f, 1f), new System.Numerics.Vector4(1,1,1,1), new System.Numerics.Vector4(1,1,1,1)))
             {
                 _showIntegratedZoneGuidance = false;
             }
@@ -1573,40 +2061,16 @@ namespace XIVHubCompanion.Apps
             DrawToggleBtn("Unspoiled", "Unspoiled", _filterType);
             DrawToggleBtn("Ephemeral", "Ephemeral", _filterType);
         }
-
-        private bool DrawPremiumButton(string label, bool active, float width)
-        {
-            ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6f * PluginUI.AppScale);
-            ImGui.PushStyleVar(ImGuiStyleVar.FrameBorderSize, 1f);
-            
-            if (active)
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.15f, 0.4f, 0.2f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.2f, 0.5f, 0.25f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.1f, 0.3f, 0.15f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.3f, 0.7f, 0.4f, 0.5f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.8f, 1f, 0.8f, 1f));
-            }
-            else
-            {
-                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.1f, 0.1f, 0.1f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.15f, 0.15f, 0.15f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.05f, 0.05f, 0.05f, 1f));
-                ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.3f, 0.3f, 0.3f, 0.3f));
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1f));
-            }
-
-            bool clicked = ImGui.Button(label, new Vector2(width, 28f * PluginUI.AppScale));
-            
-            ImGui.PopStyleColor(5);
-            ImGui.PopStyleVar(2);
-            return clicked;
-        }
-
         private void DrawToggleBtn(string label, string value, HashSet<string> set, float width = -1f)
         {
             bool active = set.Contains(value);
-            if (DrawPremiumButton(label, active, width))
+            
+            Vector4 bgCol = active ? new Vector4(0.0f, 0.65f, 1.0f, 1f) : new Vector4(0.12f, 0.12f, 0.14f, 1f);
+            Vector4 hoverCol = active ? new Vector4(0.0f, 0.75f, 1.0f, 1f) : new Vector4(0.2f, 0.2f, 0.22f, 1f);
+            Vector4 textCol = active ? new Vector4(1f, 1f, 1f, 1f) : new Vector4(0.7f, 0.7f, 0.7f, 1f);
+            
+            float w = width > 0 ? width : ImGui.GetContentRegionAvail().X;
+            if (UIHelper.DrawPremiumButton("btn_" + label, ImGui.GetCursorScreenPos(), new Vector2(w, 28f * PluginUI.AppScale), label, bgCol, hoverCol, textCol, new Vector4(1,1,1,1)))
             {
                 if (active) set.Remove(value);
                 else set.Add(value);
