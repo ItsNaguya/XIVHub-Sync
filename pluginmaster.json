@@ -1,0 +1,19 @@
+[{
+  "LoadRequiredState": 0,
+  "DownloadLinkTesting": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "Punchline": "Because clicking sync is so 2023.",
+  "DownloadLinkUpdate": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "DownloadCount": 0,
+  "Author": "Naguya",
+  "DownloadLinkInstall": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "ApplicableVersion": "any",
+  "LoadPriority": 0,
+  "LastUpdate": 1786204623,
+  "InternalName": "XIVHubCompanion",
+  "LoadSync": false,
+  "Name": "NAGU PAD (XIV HUB COMPANION)",
+  "Description": "Syncs your character data to XIV Hub locally in real time.",
+  "DalamudApiLevel": 15,
+  "AssemblyVersion": "2.1.0.0",
+  "RepoUrl": "https://github.com/ItsNaguya/XIVHub-Sync"
+}]
