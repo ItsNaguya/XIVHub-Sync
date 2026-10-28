@@ -31,6 +31,22 @@ namespace XIVHubCompanion
         public DateTime LastSyncTime { get; private set; } = DateTime.MinValue;
         public string LastSyncStatus { get; private set; } = "Never synced";
 
+        // Set when the server answers 401: the saved XIVHub ID is unknown. Sync, stream and
+        // client state pause until a verify succeeds, instead of retrying every 10 s forever.
+        public bool AuthRejected { get; private set; } = false;
+        public event Action OnAuthRejected;
+
+        public bool HasToken => _client.DefaultRequestHeaders.Authorization != null;
+
+        public void MarkAuthRejected()
+        {
+            if (AuthRejected) return;
+            AuthRejected = true;
+            LastSyncStatus = "Token rejected";
+            _log.Warning("XIV Hub rejected the saved XIVHub ID (401). Sync paused until it is re-entered.");
+            OnAuthRejected?.Invoke();
+        }
+
         public DataSender(IPluginLog log, Configuration config)
         {
             _log = log;
@@ -74,6 +90,7 @@ namespace XIVHubCompanion
                     }
 
                     CurrentUserRole = role;
+                    AuthRejected = false;
                     return "Success";
                 }
                 
@@ -97,6 +114,12 @@ namespace XIVHubCompanion
                 _client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.XivHubId);
                 _sseClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", config.XivHubId);
             }
+            else
+            {
+                // Unlinked: stop sending the old token
+                _client.DefaultRequestHeaders.Authorization = null;
+                _sseClient.DefaultRequestHeaders.Authorization = null;
+            }
         }
 
         public void StartStreaming()
@@ -116,6 +139,13 @@ namespace XIVHubCompanion
         {
             while (!token.IsCancellationRequested)
             {
+                // No token or a rejected one: wait instead of hammering the server with 401s
+                if (AuthRejected || _sseClient.DefaultRequestHeaders.Authorization == null)
+                {
+                    try { await Task.Delay(5000, token); } catch { break; }
+                    continue;
+                }
+
                 try
                 {
                     _log.Debug($"Connecting to SSE stream at {_streamUrl}...");
@@ -125,6 +155,11 @@ namespace XIVHubCompanion
                     request.Headers.Add("User-Agent", $"XIVHubCompanion/{version}");
 
                     using var response = await _sseClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        MarkAuthRejected();
+                        continue;
+                    }
                     response.EnsureSuccessStatusCode();
                     
                     _log.Debug("SSE stream connected successfully.");
@@ -185,7 +220,12 @@ namespace XIVHubCompanion
                     LastSyncTime = DateTime.Now;
                     TotalSyncs++;
 
-                    if (!response.IsSuccessStatusCode)
+                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        FailedSyncs++;
+                        MarkAuthRejected();
+                    }
+                    else if (!response.IsSuccessStatusCode)
                     {
                         FailedSyncs++;
                         LastSyncStatus = $"Error: {response.StatusCode}";
@@ -331,11 +371,13 @@ namespace XIVHubCompanion
         {
             try
             {
+                if (AuthRejected || !HasToken) return null;
                 var response = await _client.GetAsync("https://xiv.naguya.tech/api/local/clientstate");
                 if (response.IsSuccessStatusCode)
                 {
                     return await response.Content.ReadAsStringAsync();
                 }
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) MarkAuthRejected();
             }
             catch (Exception ex)
             {
@@ -348,10 +390,12 @@ namespace XIVHubCompanion
         {
             try
             {
+                if (AuthRejected || !HasToken) return;
                 var payload = new { key = key, value = value };
                 var json = JsonSerializer.Serialize(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                await _client.PostAsync("https://xiv.naguya.tech/api/local/clientstate", content);
+                var response = await _client.PostAsync("https://xiv.naguya.tech/api/local/clientstate", content);
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) MarkAuthRejected();
             }
             catch (Exception ex)
             {

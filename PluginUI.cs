@@ -370,6 +370,7 @@ namespace XIVHubCompanion
                                     this.configuration.IsVerified = false;
                                     this.configuration.XivHubId = "";
                                     this.configuration.Save();
+                                    sender.MarkAuthRejected();
                                     _isVerified = false;
                                     _errorMessage = res;
                                 } else {

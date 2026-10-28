@@ -23,6 +23,7 @@ namespace XIVHubCompanion
         private readonly IDataManager _dataManager;
         private readonly IContextMenu _contextMenu;
         private readonly IClientState _clientState;
+        private readonly IChatGui _chatGui;
         private readonly IPluginLog _log;
         
         private readonly DataSender _sender;
@@ -64,6 +65,7 @@ namespace XIVHubCompanion
             _dataManager = dataManager;
             _contextMenu = contextMenu;
             _clientState = clientState;
+            _chatGui = chatGui;
             _log = log;
 
             MemoryOffsets.Initialize(sigScanner, log);
@@ -74,7 +76,8 @@ namespace XIVHubCompanion
             _collectionService = new Collections.CollectionService(_dataManager, unlockState);
 
             _sender = new DataSender(_log, _configuration);
-            _ui = new PluginUI(_configuration, _sender, gameGui, chatGui, addonLifecycle, textureProvider, _pluginInterface, _log, objectTable, dataManager, _clientState, _commandManager, condition, unlockState);
+            _sender.OnAuthRejected += OnAuthRejected;
+            _ui =new PluginUI(_configuration, _sender, gameGui, chatGui, addonLifecycle, textureProvider, _pluginInterface, _log, objectTable, dataManager, _clientState, _commandManager, condition, unlockState);
             _sender.StartStreaming();
 
             _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
@@ -97,6 +100,13 @@ namespace XIVHubCompanion
             }
 
             _log.Info("XIV Hub Companion initialized.");
+        }
+
+        private void OnAuthRejected()
+        {
+            // Raised from a background task; print on the framework thread
+            _framework.RunOnFrameworkThread(() =>
+                _chatGui.PrintError("[XIV Hub] Your XIVHub ID was rejected, so LiveSync is paused. Copy your ID from xiv.naguya.tech/settings and enter it again with /xivhub."));
         }
 
         private void OnLogin()
@@ -141,6 +151,7 @@ namespace XIVHubCompanion
             _framework.Update -= OnFrameworkUpdate;
             _contextMenu.OnMenuOpened -= OnContextMenuOpened;
             _clientState.Login -= OnLogin;
+            _sender.OnAuthRejected -= OnAuthRejected;
             _pluginInterface.UiBuilder.Draw -= DrawUI;
             _pluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
             _pluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
@@ -167,6 +178,8 @@ namespace XIVHubCompanion
         private void OnFrameworkUpdate(IFramework framework)
         {
             if (!_configuration.IsSyncEnabled) return;
+            // The server rejects LiveSync without a valid XIVHub ID, so don't send it
+            if (string.IsNullOrEmpty(_configuration.XivHubId) || _sender.AuthRejected) return;
 
             var localPlayer = _objectTable[0] as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
             if (localPlayer == null) return;
