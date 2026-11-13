@@ -1,33 +1,51 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Collections.Generic;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Plugin.Services;
-using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface;
-using Dalamud.Interface.Colors;
-using Dalamud.Interface.Textures;
+using Dalamud.Plugin.Services;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using XIVHubCompanion.Collections;
+using XIVHubCompanion.Tablet;
 
 namespace XIVHubCompanion.Apps
 {
-    public class CollectionApp : IApp
+    /// <summary>
+    /// Collection (3.0): the website's collection page in the tablet. Owned state comes from the game (refreshed every
+    /// 10 s); FFXIV Collect adds patch, rarity and sources. Category, show, sort and the achievement type/category are
+    /// shared with the website (state section collections.view), read every frame. Emotes, orchestrion, hairstyles,
+    /// facewear and Triple Triad cards are plugin-only categories: picking one stays local.
+    /// </summary>
+    public partial class CollectionApp : IApp
     {
         public string Name => "Collection";
         public string Icon => FontAwesomeIcon.Book.ToIconString();
         public bool IsVisible { get; set; } = false;
+        public bool LargeText => true;
 
         private readonly HubClient _sender;
         private readonly CollectionService _collectionService;
         private readonly ITextureProvider _textureProvider;
 
-        private CollectionCategory _selectedCategory = CollectionCategory.Mounts;
-        private string _selectedSubcategory = "All";
-        private string _searchQuery = "";
-        private bool _showOnlyUnlocked = false;
-        private Dictionary<CollectionCategory, bool> _categoryOpenState = new Dictionary<CollectionCategory, bool>();
-        private Dictionary<CollectionCategory, float> _categoryAnimProgress = new Dictionary<CollectionCategory, float>();
+        private sealed record CatInfo(CollectionCategory Cat, string Label, string? Web, string? Collect, FontAwesomeIcon Glyph);
+        private static readonly CatInfo[] Cats =
+        {
+            new(CollectionCategory.Mounts, "Mounts", "mounts", "mounts", FontAwesomeIcon.Horse),
+            new(CollectionCategory.Minions, "Minions", "minions", "minions", FontAwesomeIcon.Paw),
+            new(CollectionCategory.Achievements, "Achievements", "achievements", "achievements", FontAwesomeIcon.Trophy),
+            new(CollectionCategory.Emotes, "Emotes", null, "emotes", FontAwesomeIcon.Smile),
+            new(CollectionCategory.Orchestrions, "Orchestrion", null, "orchestrions", FontAwesomeIcon.Music),
+            new(CollectionCategory.Hairstyles, "Hairstyles", null, "hairstyles", FontAwesomeIcon.Cut),
+            new(CollectionCategory.Facewear, "Facewear", null, "facewear", FontAwesomeIcon.Glasses),
+            new(CollectionCategory.TriadCards, "Triad cards", null, "triad/cards", FontAwesomeIcon.Clone),
+        };
+        private static CatInfo CatDef(CollectionCategory c) => Array.Find(Cats, x => x.Cat == c) ?? Cats[0];
+
+        private CollectionCategory _cat = CollectionCategory.Mounts;
+        private readonly Dictionary<CollectionCategory, string> _sub = new(); // expansion chip per category (plugin only)
+        private string _query = "";
 
         public CollectionApp(HubClient sender, CollectionService collectionService, ITextureProvider textureProvider)
         {
@@ -41,275 +59,504 @@ namespace XIVHubCompanion.Apps
         public void Update() { }
         public void Dispose() { }
 
+        // =============================================================================================================
+        // Sync with the website: collections.view { cat, sort, show, achType, achCat }
+        // =============================================================================================================
+        private const string SecView = "collections.view";
+
+        private sealed class ViewState
+        {
+            public string cat { get; set; } = "mounts";
+            public string sort { get; set; } = "patch";
+            public string show { get; set; } = "all";
+            public string? achType { get; set; }
+            public string? achCat { get; set; }
+            [JsonExtensionData] public IDictionary<string, JToken>? extra { get; set; }
+        }
+
+        private JToken? _viewTok;
+        private bool _viewRead;
+        private ViewState _view = new();
+        private string? _lastWebCat;
+
+        private void SyncIn()
+        {
+            var t = _sender.GetState(SecView);
+            if (_viewRead && ReferenceEquals(t, _viewTok)) return;
+            _viewRead = true;
+            _viewTok = t;
+            ViewState? v = null;
+            if (t != null && t.Type == JTokenType.Object) try { v = t.ToObject<ViewState>(); } catch { }
+            _view = v ?? new ViewState();
+            _view.sort = _view.sort is "patch" or "alpha" or "rare" ? _view.sort : "patch";
+            _view.show = _view.show is "all" or "owned" or "missing" ? _view.show : "all";
+            // follow the website's category when it changes there (a plugin-only category stays open otherwise)
+            if (_view.cat != _lastWebCat)
+            {
+                _lastWebCat = _view.cat;
+                var c = Array.Find(Cats, x => x.Web == _view.cat);
+                if (c != null) _cat = c.Cat;
+            }
+        }
+
+        private void SetView(Action<ViewState> change)
+        {
+            var v = new ViewState { cat = _view.cat, sort = _view.sort, show = _view.show, achType = _view.achType, achCat = _view.achCat, extra = _view.extra };
+            change(v);
+            _view = v;
+            _lastWebCat = v.cat;
+            var obj = new Dictionary<string, object?> { ["cat"] = v.cat, ["sort"] = v.sort, ["show"] = v.show, ["achType"] = v.achType, ["achCat"] = v.achCat };
+            if (v.extra != null) foreach (var (k, val) in v.extra) obj.TryAdd(k, val);
+            _sender.SetState(SecView, obj);
+            _viewTok = _sender.GetState(SecView);
+        }
+
+        private void PickCategory(CollectionCategory c)
+        {
+            _cat = c;
+            var web = CatDef(c).Web;
+            if (web != null && web != _view.cat) SetView(v => v.cat = web);
+        }
+
+        // =============================================================================================================
+        // Data (counts and the achievement tree are rebuilt when the service swaps its lists, every 10 s)
+        // =============================================================================================================
+        private sealed class Stat { public int Owned, Total, Points, PointsTotal; }
+        private sealed class AchType { public int Owned, Total; public Dictionary<string, (int Owned, int Total)> Cats = new(); public List<string> Order = new(); }
+
+        private readonly Dictionary<CollectionCategory, (List<CollectionItem> List, Stat Stat)> _stats = new();
+        private List<CollectionItem>? _treeList;
+        private Dictionary<string, AchType> _tree = new();
+        private List<string> _treeOrder = new();
+
+        private Stat StatOf(CollectionCategory c)
+        {
+            var list = _collectionService.GetItems(c);
+            if (_stats.TryGetValue(c, out var s) && ReferenceEquals(s.List, list)) return s.Stat;
+            var st = new Stat { Total = list.Count };
+            foreach (var it in list)
+            {
+                st.PointsTotal += it.Points;
+                if (it.IsUnlocked) { st.Owned++; st.Points += it.Points; }
+            }
+            _stats[c] = (list, st);
+            return st;
+        }
+
+        private void BuildTree()
+        {
+            var list = _collectionService.GetItems(CollectionCategory.Achievements);
+            if (ReferenceEquals(list, _treeList)) return;
+            _treeList = list;
+            var types = new Dictionary<string, AchType>();
+            foreach (var it in list)
+            {
+                if (!types.TryGetValue(it.Group, out var T)) types[it.Group] = T = new AchType();
+                int o = it.IsUnlocked ? 1 : 0;
+                T.Total++; T.Owned += o;
+                T.Cats.TryGetValue(it.Subcategory, out var C);
+                T.Cats[it.Subcategory] = (C.Owned + o, C.Total + 1);
+            }
+            foreach (var T in types.Values) T.Order = T.Cats.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+            _tree = types;
+            _treeOrder = types.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private string? AchTypeNow => _view.achType != null && _tree.ContainsKey(_view.achType) ? _view.achType : _treeOrder.FirstOrDefault();
+        private string? AchCatNow
+        {
+            get
+            {
+                var t = AchTypeNow;
+                if (t == null) return null;
+                var order = _tree[t].Order;
+                return _view.achCat != null && order.Contains(_view.achCat) ? _view.achCat : order.FirstOrDefault();
+            }
+        }
+
+        /// <summary>Expansion for mounts, minions and orchestrion rolls: from FFXIV Collect's patch, else the game id range.</summary>
+        private string SubOf(CollectionItem it)
+        {
+            if (it.Category is CollectionCategory.Mounts or CollectionCategory.Minions or CollectionCategory.Orchestrions)
+            {
+                var exp = ExpansionOfPatch(Info(it)?.Patch ?? "");
+                if (exp.Length > 0) return exp;
+            }
+            return it.Subcategory ?? "";
+        }
+
+        // the filtered, sorted list is cached until something it depends on changes
+        private (object? List, int Info, string Key) _shownKey;
+        private List<CollectionItem> _shown = new();
+
+        private List<CollectionItem> Shown()
+        {
+            var list = _collectionService.GetItems(_cat);
+            string key = $"{_cat}|{_query}|{_view.show}|{_view.sort}|{SubSel}|{AchTypeNow}|{AchCatNow}";
+            if (ReferenceEquals(_shownKey.List, list) && _shownKey.Info == _infoVersion && _shownKey.Key == key) return _shown;
+            _shownKey = (list, _infoVersion, key);
+
+            var q = Norm(_query);
+            bool ach = _cat == CollectionCategory.Achievements;
+            string? type = AchTypeNow, cat = AchCatNow, sub = SubSel;
+            IEnumerable<CollectionItem> res = list.Where(it => _view.show == "all" || (_view.show == "owned") == it.IsUnlocked);
+            if (ach)
+                res = res.Where(it => q.Length > 0
+                    ? Norm(it.Name).Contains(q) || Norm(it.Description).Contains(q)   // a search looks through every achievement
+                    : it.Group == type && it.Subcategory == cat);
+            else
+                res = res.Where(it => (sub == "All" || SubOf(it) == sub) && (q.Length == 0 || Norm(it.Name).Contains(q)
+                    || (it.Sources ?? Array.Empty<string>()).Any(s => Norm(s).Contains(q))
+                    || (Info(it)?.Sources ?? Array.Empty<string>()).Any(s => Norm(s).Contains(q))));
+
+            res = _view.sort switch
+            {
+                "alpha" => res.OrderBy(it => it.Name, StringComparer.OrdinalIgnoreCase),
+                "rare" => res.OrderBy(it => Info(it)?.OwnedPct ?? 100f).ThenBy(it => it.Name, StringComparer.OrdinalIgnoreCase),
+                _ => res.OrderByDescending(it => PatchNum(Info(it)?.Patch ?? "")).ThenByDescending(it => it.Id),
+            };
+            _shown = res.ToList();
+            return _shown;
+        }
+
+        private string SubSel => _sub.TryGetValue(_cat, out var s) ? s : "All";
+
+        // =============================================================================================================
+        // Draw
+        // =============================================================================================================
         public void Draw()
         {
-            var region = ImGui.GetContentRegionAvail();
-            
-            float sidebarWidth = 240f;
-            
-            UIHelper.BeginSmoothChild("CollectionSidebar", new Vector2(sidebarWidth, region.Y), true);
-            DrawSidebar();
-            ImGui.EndChild();
-
-            ImGui.SameLine();
-
-            UIHelper.BeginSmoothChild("CollectionContent", new Vector2(0, region.Y), false);
-            DrawContent();
-            ImGui.EndChild();
-        }
-
-        private void DrawSidebar()
-        {
-            ImGui.PushFont(UiBuilder.IconFont);
-            ImGui.TextColored(ImGuiColors.ParsedGold, FontAwesomeIcon.Book.ToIconString());
-            ImGui.PopFont();
-            ImGui.SameLine();
-            ImGui.Text("Categories");
-            
-            ImGui.Separator();
-            ImGui.Spacing();
-
-            foreach (CollectionCategory category in Enum.GetValues(typeof(CollectionCategory)))
+            SyncIn();
+            PumpInfo();
+            var avail = ImGui.GetContentRegionAvail();
+            if (UIHelper.BeginSmoothChild("co_main", avail))
             {
-                var items = _collectionService.GetItems(category);
-                int total = items.Count;
-                if (total == 0) continue; 
-                
-                int unlocked = items.Count(x => x.IsUnlocked);
-                
-                bool isCategorySelected = _selectedCategory == category && _selectedSubcategory == "All";
-                
-                if (!_categoryOpenState.ContainsKey(category)) 
-                    _categoryOpenState[category] = (category == CollectionCategory.Mounts);
-
-                bool isOpen = _categoryOpenState[category];
-                string icon = isOpen ? "▼" : "▶";
-                
-                Vector4 bgActive = new Vector4(0.0f, 0.4f, 0.7f, 0.4f);
-                Vector4 bgNormal = Theme.Night2;
-                
-                if (UIHelper.DrawPremiumButton($"btn_cat_{category}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), $"{icon}  {category} ({unlocked}/{total})", isCategorySelected ? bgActive : bgNormal, bgActive, Vector4.One, Vector4.One))
-                {
-                    if (isCategorySelected) {
-                        _categoryOpenState[category] = !isOpen;
-                    } else {
-                        _selectedCategory = category;
-                        _selectedSubcategory = "All";
-                        _categoryOpenState[category] = true;
-                    }
-                }
-
-                float target = isOpen ? 1f : 0f;
-                if (!_categoryAnimProgress.ContainsKey(category)) _categoryAnimProgress[category] = target;
-
-                float current = _categoryAnimProgress[category];
-                if (current != target)
-                {
-                    current = current + (target - current) * Math.Min(1f, 8f * ImGui.GetIO().DeltaTime);
-                    if (Math.Abs(current - target) < 0.01f) current = target;
-                    _categoryAnimProgress[category] = current;
-                }
-
-                if (current > 0.01f)
-                {
-                    var subcategories = items.Select(i => i.Subcategory).Distinct().OrderBy(s => s).ToList();
-                    int validSubs = subcategories.Count(s => !string.IsNullOrEmpty(s));
-                    float itemHeight = 28f * PluginUI.AppScale + ImGui.GetStyle().ItemSpacing.Y;
-                    float totalHeight = validSubs * itemHeight;
-
-                    UIHelper.BeginSmoothChild($"sub_{category}", new Vector2(0, totalHeight * current), false, ImGuiWindowFlags.NoScrollbar);
-                    ImGui.PushStyleVar(ImGuiStyleVar.Alpha, current);
-
-                    foreach (var sub in subcategories)
-                    {
-                        if (string.IsNullOrEmpty(sub)) continue;
-
-                        int subTotal = items.Count(x => x.Subcategory == sub);
-                        int subUnlocked = items.Count(x => x.Subcategory == sub && x.IsUnlocked);
-
-                        bool isSubSelected = _selectedCategory == category && _selectedSubcategory == sub;
-                        
-                        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 15f * PluginUI.AppScale);
-                        
-                        if (UIHelper.DrawPremiumButton($"btn_sub_{category}_{sub}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 28f * PluginUI.AppScale), $"{sub} ({subUnlocked}/{subTotal})", isSubSelected ? bgActive : new Vector4(0,0,0,0), bgActive, isSubSelected ? Vector4.One : Theme.Text2, Vector4.One))
-                        {
-                            _selectedCategory = category;
-                            _selectedSubcategory = sub;
-                        }
-                    }
-                    
-                    ImGui.PopStyleVar();
-                    ImGui.EndChild();
-                }
-                ImGui.Spacing();
+                float w = avail.X - S(10);
+                var p = ImGui.GetCursorScreenPos();
+                float y = p.Y;
+                y = DrawHead(new Vector2(p.X, y), w) + S(10);
+                y = DrawCats(new Vector2(p.X, y), w) + S(10);
+                y = DrawControls(new Vector2(p.X, y), w) + S(10);
+                y = DrawBody(new Vector2(p.X, y), w) + S(10);
+                var foot = "Owned state from the game, refreshed every 10 seconds. Patch, rarity and sources from FFXIV Collect.";
+                Ui.Text(Ui.Dl, new Vector2(p.X, y), Fit(foot, w, 0.8f), Theme.Text3, 0.8f);
+                y += LH + S(6);
+                Advance(p, y - p.Y);
             }
-        }
-
-        private void DrawContent()
-        {
-            var items = _collectionService.GetItems(_selectedCategory);
-
-            // Filtering
-            ImGui.SetNextItemWidth(250f * PluginUI.AppScale);
-            UIHelper.DrawPremiumInputText("txt_col_search", ImGui.GetCursorScreenPos(), new Vector2(250f * PluginUI.AppScale, 30f * PluginUI.AppScale), ref _searchQuery, 100);
-            
-            ImGui.SameLine();
-            ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 5f * PluginUI.AppScale);
-            ImGui.Checkbox("Owned Only", ref _showOnlyUnlocked);
-
-            var filtered = items.Where(i => 
-                (_selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory) &&
-                (string.IsNullOrEmpty(_searchQuery) || i.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)) &&
-                (!_showOnlyUnlocked || i.IsUnlocked)
-            ).ToList();
-
-            int total = items.Count(i => _selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory);
-            int unlocked = items.Count(i => (_selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory) && i.IsUnlocked);
-            
-            ImGui.Spacing();
-            ImGui.TextColored(Theme.Crystal, $"Category Progress: {unlocked} / {total} ({((total > 0 ? (float)unlocked/total*100f : 0)):F1}%)");
-            ImGui.PushStyleColor(ImGuiCol.PlotHistogram, UIHelper.Vec4ToU32(Theme.Crystal));
-            ImGui.ProgressBar(total > 0 ? (float)unlocked/total : 0, new Vector2(-1, 4), "");
-            ImGui.PopStyleColor();
-
-            ImGui.Spacing();
-
-            if (_selectedCategory == CollectionCategory.Achievements && unlocked == 0)
-            {
-                ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudYellow);
-                ImGui.TextWrapped(FontAwesomeIcon.ExclamationTriangle.ToIconString() + " To load your achievements, please open the 'Achievements' menu in-game once per session. FFXIV only loads this data into memory when requested!");
-                ImGui.PopStyleColor();
-                ImGui.Spacing();
-            }
-
-            if (filtered.Count == 0)
-            {
-                ImGui.TextColored(ImGuiColors.DalamudGrey, "No items found.");
-                return;
-            }
-
-            // Premium Grid rendering
-            float cardWidth = 100f * PluginUI.AppScale; // Reduced to fit more cards per row
-            float cardHeight = 135f * PluginUI.AppScale;
-            float padding = 12f * PluginUI.AppScale;
-            float availableWidth = ImGui.GetContentRegionAvail().X;
-            int columns = Math.Max(1, (int)(availableWidth / (cardWidth + padding)));
-
-            UIHelper.BeginSmoothChild("CollectionGrid", new Vector2(0, 0), false);
-
-            if (ImGui.BeginTable("CollectionTable", columns))
-            {
-                for (int i = 0; i < filtered.Count; i++)
-                {
-                    if (i % columns == 0) ImGui.TableNextRow();
-                    ImGui.TableNextColumn();
-                    
-                    var item = filtered[i];
-                    DrawPremiumCard(item, cardWidth, cardHeight);
-                }
-                ImGui.EndTable();
-            }
-
-            ImGui.Dummy(new Vector2(0, 30)); // Add bottom padding to fix layout clipping
             ImGui.EndChild();
         }
 
-        private void DrawPremiumCard(CollectionItem item, float width, float height)
+        private float DrawHead(Vector2 p, float w)
         {
-            var cursorPos = ImGui.GetCursorPos();
-            var screenPos = ImGui.GetCursorScreenPos();
-            var drawList = ImGui.GetWindowDrawList();
-            
-            float cornerRadius = 12f;
-            var bgColor = item.IsUnlocked ? new Vector4(0.0f, 0.15f, 0.25f, 1f) : new Vector4(0.08f, 0.08f, 0.09f, 1f);
-            var borderColor = item.IsUnlocked ? Theme.Crystal.With(0.8f) : Theme.Night3.With(0.5f);
-            
-            drawList.AddRectFilled(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(bgColor), cornerRadius);
-            drawList.AddRect(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(borderColor), cornerRadius, ImDrawFlags.None, item.IsUnlocked ? 1.5f : 1f);
+            var dl = Ui.Dl;
+            var def = CatDef(_cat);
+            var st = StatOf(_cat);
+            float titleH = Ui.TextSize("Ag", 1.3f).Y, pad = S(14);
+            float h = pad + titleH + S(8) + TagH() + pad;
+            Ui.Panel(dl, p, p + new Vector2(w, h));
 
-            ImGui.SetCursorPos(cursorPos + new Vector2(5, 12));
+            // title with the website's gem
+            var gem = p + new Vector2(pad + S(6), pad + titleH / 2);
+            float g = S(6);
+            dl.AddQuadFilled(gem + new Vector2(0, -g), gem + new Vector2(g, 0), gem + new Vector2(0, g), gem + new Vector2(-g, 0), Ui.Accent.U32());
+            float x = p.X + pad + S(20);
+            Ui.Text(dl, new Vector2(x, p.Y + pad), "Collections", Theme.Text, 1.3f);
+            x += Ui.TextSize("Collections", 1.3f).X + S(10);
+            Ui.Text(dl, new Vector2(x, p.Y + pad + titleH - LH - S(1)), "from the game", Theme.Text3);
 
-            float iconSize = width - 40f;
-            ImGui.SetCursorPosX(cursorPos.X + (width - iconSize) / 2);
-            
-            IDalamudTextureWrap texWrap = null;
-            try
+            // refresh now
+            float b = S(34);
+            if (Ui.IconButton("co_refresh", FontAwesomeIcon.SyncAlt, new Vector2(p.X + w - pad - b, p.Y + pad), b, "Read the collections from the game again now"))
             {
-                texWrap = _textureProvider.GetFromGameIcon(new GameIconLookup(item.IconId)).GetWrapOrDefault();
-            }
-            catch (Exception)
-            {
-                // Ignore missing icon exception
+                _collectionService.RefreshCache();
             }
 
-            if (texWrap != null)
-            {
-                Vector4 tint = item.IsUnlocked ? Vector4.One : Theme.Night3;
-                ImGui.Image(texWrap.Handle, new Vector2(iconSize, iconSize), Vector2.Zero, Vector2.One, tint);
-            }
-            else
-            {
-                ImGui.Dummy(new Vector2(iconSize, iconSize));
-            }
+            // meta row: source, count, points, FFXIV Collect state
+            var m = new Vector2(p.X + pad, p.Y + pad + titleH + S(8));
+            m.X += TipTag("co_live", m, "LIVE", Theme.Live, $"{def.Label} read from the game right now (every 10 seconds).") + S(8);
+            string count = $"{st.Owned:N0} / {st.Total:N0}";
+            Ui.Text(dl, m + new Vector2(0, S(2)), count, Theme.Text, 0.95f);
+            m.X += Ui.TextSize(count, 0.95f).X + S(6);
+            string rest = $"{def.Label.ToLowerInvariant()} · {Pct(st.Owned, st.Total)}%";
+            Ui.Text(dl, m + new Vector2(0, S(3)), rest, Theme.Text3, 0.9f);
+            m.X += Ui.TextSize(rest, 0.9f).X + S(12);
+            if (_cat == CollectionCategory.Achievements)
+                m.X += TipTag("co_pts", m, $"{st.Points:N0} pts", Theme.Gold, $"Counted from the completed achievements, of {st.PointsTotal:N0} in the game.") + S(8);
+            if (_infoLoading == _cat)
+                TipTag("co_info", m, "Loading patch data...", Theme.Text2, "Patch, rarity and sources come from FFXIV Collect (the website's lists).");
+            else if (InfoFailed(_cat))
+                TipTag("co_info", m, "No patch data", Theme.Warn, (_infoError.Length > 0 ? _infoError + "\n" : "") + "Sorting by patch and rarity falls back to the game order. Retries in 5 minutes.");
+            return p.Y + h;
+        }
 
-            ImGui.SetCursorPos(cursorPos + new Vector2(5, iconSize + 22));
-            ImGui.PushTextWrapPos(cursorPos.X + width - 5);
-            
-            string display = item.Name;
-            if (display.Length > 25) display = display.Substring(0, 22) + "..";
-            
-            float textWidth = ImGui.CalcTextSize(display).X;
-            // Center text loosely
-            ImGui.SetCursorPosX(cursorPos.X + (width - Math.Min(textWidth, width - 10)) / 2);
-            
-            ImGui.TextColored(item.IsUnlocked ? Vector4.One : ImGuiColors.DalamudGrey, display);
-            ImGui.PopTextWrapPos();
-
-            // Hover Tooltip overlay
-            ImGui.SetCursorPos(cursorPos);
-            ImGui.InvisibleButton($"##hover_{item.Id}", new Vector2(width, height));
-            if (ImGui.IsItemHovered())
+        private float DrawCats(Vector2 p, float w)
+        {
+            var dl = Ui.Dl;
+            float gap = S(8);
+            int cols = Math.Clamp((int)((w + gap) / (S(150) + gap)), 2, Cats.Length);
+            int rows = (Cats.Length + cols - 1) / cols;
+            float tw = (w - gap * (cols - 1)) / cols, th = LH + S(26);
+            for (int i = 0; i < Cats.Length; i++)
             {
-                ImGui.BeginTooltip();
-                
-                ImGui.TextColored(item.IsUnlocked ? Theme.Crystal : ImGuiColors.DalamudGrey, item.Name);
-                
-                ImGui.SameLine();
-                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 10);
-                ImGui.TextColored(ImGuiColors.ParsedGold, $"[{item.Subcategory}]");
-                
-                if (!string.IsNullOrEmpty(item.Description))
+                var c = Cats[i];
+                var st = StatOf(c.Cat);
+                var a = p + new Vector2((i % cols) * (tw + gap), (i / cols) * (th + gap));
+                bool active = c.Cat == _cat;
+                bool clicked = Ui.Hit("co_cat" + i, a, new Vector2(tw, th), out float h);
+                Ui.Tooltip($"{c.Label}: {st.Owned:N0} of {st.Total:N0}, from the game" + (c.Web == null ? "\nOnly in the plugin (the website shows mounts, minions and achievements)." : ""));
+                if (clicked && !active) PickCategory(c.Cat);
+                Ui.Panel(dl, a, a + new Vector2(tw, th), active ? Ui.Accent.With(0.16f + 0.08f * h) : Theme.Night2.With(0.6f + 0.2f * h),
+                    active ? Ui.Accent.With(0.7f) : Theme.Text3.With(0.2f + 0.3f * h), 6f);
+                var col = active ? Theme.Text : UIHelper.LerpColor(Theme.Text2, Theme.Text, h);
+                float ix = a.X + S(10), iy = a.Y + S(8);
+                Ui.Icon(dl, new Vector2(ix, iy + S(1)), c.Glyph, active ? Ui.Accent : Theme.Text3, 0.9f);
+                ix += S(22);
+                string n = st.Total > 0 ? $"{st.Owned}/{st.Total}" : "...";
+                float nw = Ui.TextSize(n, 0.82f).X;
+                Ui.Text(dl, new Vector2(ix, iy), Fit(c.Label, a.X + tw - S(10) - nw - S(6) - ix), col);
+                Ui.Text(dl, new Vector2(a.X + tw - S(10) - nw, iy + S(2)), n, Theme.Text3, 0.82f);
+                Ui.Progress(dl, new Vector2(a.X + S(10), a.Y + th - S(10)), tw - S(20), st.Total > 0 ? (float)st.Owned / st.Total : 0, active ? Ui.Accent : Theme.Crystal.With(0.6f), 3f);
+            }
+            return p.Y + rows * th + (rows - 1) * gap;
+        }
+
+        private float DrawControls(Vector2 p, float w)
+        {
+            float gap = S(8), fh = FrameH;
+            float segW = Math.Min(S(270), w), sortW = S(200);
+            bool oneRow = w >= S(640);
+            float searchW = oneRow ? w - segW - sortW - gap * 2 : w;
+
+            string hint = _cat == CollectionCategory.Achievements ? "Search all achievements..." : $"Search {CatDef(_cat).Label.ToLowerInvariant()} or sources...";
+            Input("##co_q", ref _query, hint, searchW, p);
+            if (_query.Length > 0 && Ui.IconButton("co_qx", FontAwesomeIcon.Times, p + new Vector2(searchW - fh, 0), fh, "Clear search")) _query = "";
+
+            var r = oneRow ? new Vector2(p.X + searchW + gap, p.Y) : new Vector2(p.X, p.Y + fh + gap);
+            string[] shows = { "all", "owned", "missing" }, labels = { "All", "Owned", "Missing" };
+            float bw = (segW - S(4) * 2) / 3;
+            for (int i = 0; i < 3; i++)
+            {
+                var s = shows[i];
+                if (Ui.Button("co_show" + s, labels[i], r + new Vector2(i * (bw + S(4)), 0), new Vector2(bw, fh), _view.show == s ? Kind.Primary : Kind.Ghost) && _view.show != s)
+                    SetView(v => v.show = s);
+            }
+            var sp = new Vector2(r.X + segW + gap, r.Y);
+            if (!oneRow && sp.X + sortW > p.X + w) sp = new Vector2(p.X, r.Y + fh + gap);
+            var pick = Combo("##co_sort", _view.sort, new[] { ("patch", "Newest patch first"), ("alpha", "A to Z"), ("rare", "Rarest first") }, sortW, sp,
+                InfoLoaded(_cat) ? "" : "Patch and rarity come from FFXIV Collect; until they load, the game order is used.");
+            if (pick != null) SetView(v => v.sort = pick);
+            float bottom = Math.Max(sp.Y, r.Y) + fh;
+
+            // expansion chips (mounts, minions, orchestrion)
+            if (_cat != CollectionCategory.Achievements)
+            {
+                var list = _collectionService.GetItems(_cat);
+                var subs = list.GroupBy(SubOf).Where(g => g.Key.Length > 0)
+                    .Select(g => (Name: g.Key, Owned: g.Count(x => x.IsUnlocked), Total: g.Count()))
+                    .OrderBy(g => Array.IndexOf(Expansions, g.Name) is var i && i >= 0 ? i : 99).ThenBy(g => g.Name).ToList();
+                if (subs.Count > 1)
                 {
-                    ImGui.Separator();
-                    ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30f);
-                    ImGui.TextUnformatted(item.Description);
-                    ImGui.PopTextWrapPos();
+                    var at = new Vector2(p.X, bottom + gap);
+                    var sel = SubSel;
+                    if (sel != "All" && !subs.Any(s => s.Name == sel)) { _sub.Remove(_cat); sel = "All"; }
+                    if (ChipToggle("co_sub_all", "All", sel == "All", ref at, p.X, p.X + w)) _sub.Remove(_cat);
+                    foreach (var s in subs)
+                        if (ChipToggle("co_sub_" + s.Name, $"{s.Name}  {s.Owned}/{s.Total}", sel == s.Name, ref at, p.X, p.X + w)) _sub[_cat] = s.Name;
+                    bottom = at.Y + ChipH();
                 }
-                
+            }
+            return bottom;
+        }
+
+        private float DrawBody(Vector2 p, float w)
+        {
+            float y = p.Y;
+            var st = StatOf(_cat);
+            if (_cat == CollectionCategory.Achievements && st.Owned == 0 && st.Total > 0)
+                y += Message(new Vector2(p.X, y), w, "To load your achievements, open the Achievements window in game once per session. The game only loads them when asked.", Theme.Warn) + S(10);
+
+            if (_cat != CollectionCategory.Achievements) return DrawGrid(new Vector2(p.X, y), w);
+
+            BuildTree();
+            if (w >= S(720))
+            {
+                float side = S(250), gap = S(12);
+                float treeBottom = DrawTree(new Vector2(p.X, y), side);
+                float listBottom = DrawAchList(new Vector2(p.X + side + gap, y), w - side - gap);
+                return Math.Max(treeBottom, listBottom);
+            }
+            // narrow: the same tree as two pickers
+            var type = AchTypeNow;
+            if (type != null)
+            {
+                float cw = (w - S(8)) / 2;
+                var tp = Combo("##co_atype", type, _treeOrder.Select(t => (t, $"{t} ({Pct(_tree[t].Owned, _tree[t].Total)}%)")).ToArray(), cw, new Vector2(p.X, y));
+                if (tp != null) SetView(v => { v.achType = tp; v.achCat = null; });
+                var cat = AchCatNow ?? "";
+                var T = _tree[type];
+                var cp = Combo("##co_acat", cat, T.Order.Select(c => (c, $"{c} ({T.Cats[c].Owned}/{T.Cats[c].Total})")).ToArray(), cw, new Vector2(p.X + cw + S(8), y));
+                if (cp != null) SetView(v => { v.achType = type; v.achCat = cp; });
+                y += FrameH + S(10);
+            }
+            return DrawAchList(new Vector2(p.X, y), w);
+        }
+
+        private float DrawTree(Vector2 p, float w)
+        {
+            var dl = Ui.Dl;
+            string? openType = AchTypeNow, openCat = AchCatNow;
+            float rowH = LH + S(12), subH = LH + S(6), pad = S(10), capsH = Ui.TextSize("A", 0.78f).Y;
+            float h = pad + capsH + S(8) + _treeOrder.Count * rowH + (openType != null ? _tree[openType].Order.Count * subH : 0) + pad;
+            Ui.Panel(dl, p, p + new Vector2(w, h));
+            Ui.Caps(dl, p + new Vector2(pad, pad), "Types");
+            float y = p.Y + pad + capsH + S(8);
+            foreach (var type in _treeOrder)
+            {
+                var T = _tree[type];
+                bool open = type == openType;
+                var a = new Vector2(p.X + S(4), y);
+                var size = new Vector2(w - S(8), rowH);
+                if (Ui.Hit("co_t_" + type, a, size, out float hv) && !open) SetView(v => { v.achType = type; v.achCat = null; });
+                if (open || hv > 0.01f) dl.AddRectFilled(a, a + size, (open ? Ui.Accent.With(0.16f) : Theme.Text.With(0.06f * hv)).U32(), S(5));
+                string pct = $"{Pct(T.Owned, T.Total)}%";
+                float pw = Ui.TextSize(pct, 0.82f).X;
+                Ui.Text(dl, a + new Vector2(S(8), S(6)), Fit(type, size.X - pw - S(22)), open ? Theme.Text : Theme.Text2);
+                Ui.Text(dl, a + new Vector2(size.X - S(8) - pw, S(7)), pct, Theme.Text3, 0.82f);
+                y += rowH;
+                if (!open) continue;
+                foreach (var c in T.Order)
+                {
+                    var (o, t) = T.Cats[c];
+                    bool sel = c == openCat;
+                    var sa = new Vector2(p.X + S(16), y);
+                    var ss = new Vector2(w - S(20), subH);
+                    if (Ui.Hit("co_c_" + type + "_" + c, sa, ss, out float sh) && !sel) SetView(v => { v.achType = type; v.achCat = c; });
+                    if (sel) dl.AddRectFilled(sa, sa + new Vector2(S(3), ss.Y), Ui.Accent.U32());
+                    else if (sh > 0.01f) dl.AddRectFilled(sa, sa + ss, Theme.Text.With(0.05f * sh).U32(), S(4));
+                    string n = $"{o}/{t}";
+                    float nw = Ui.TextSize(n, 0.8f).X;
+                    var col = o == t ? Theme.Live : sel ? Theme.Text : UIHelper.LerpColor(Theme.Text2, Theme.Text, sh);
+                    Ui.Text(dl, sa + new Vector2(S(10), S(3)), Fit(c, ss.X - nw - S(22), 0.9f), col, 0.9f);
+                    Ui.Text(dl, sa + new Vector2(ss.X - S(6) - nw, S(4)), n, Theme.Text3, 0.8f);
+                    y += subH;
+                }
+            }
+            return p.Y + h;
+        }
+
+        private float DrawAchList(Vector2 p, float w)
+        {
+            var dl = Ui.Dl;
+            float y = p.Y;
+            var shown = Shown();
+            string head = _query.Trim().Length > 0 ? "Search results" : AchCatNow ?? "";
+            string aside = _query.Trim().Length > 0 ? "in all achievements" : AchTypeNow != null ? $"in {AchTypeNow}" : "";
+            Ui.Text(dl, new Vector2(p.X, y), Fit(head, w * 0.6f, 1.1f), Theme.Text, 1.1f);
+            float hx = p.X + Ui.TextSize(Fit(head, w * 0.6f, 1.1f), 1.1f).X + S(8);
+            Ui.Text(dl, new Vector2(hx, y + S(2)), $"{aside}  ·  {shown.Count}", Theme.Text3, 0.9f);
+            y += Ui.TextSize("Ag", 1.1f).Y + S(8);
+            return DrawItems(new Vector2(p.X, y), w, shown);
+        }
+
+        private float DrawGrid(Vector2 p, float w) => DrawItems(p, w, Shown());
+
+        private float DrawItems(Vector2 p, float w, List<CollectionItem> shown)
+        {
+            if (_collectionService.GetItems(_cat).Count == 0)
+            {
+                Empty(p, w, "Nothing to show yet: log in to a character in game.", FontAwesomeIcon.Sync);
+                return p.Y + EmptyH;
+            }
+            if (shown.Count == 0)
+            {
+                var what = _query.Trim().Length > 0 ? $" matching \"{_query.Trim()}\"" : "";
+                var only = _view.show != "all" ? $" ({_view.show} only)" : "";
+                Empty(p, w, $"Nothing here{what}{only}.", FontAwesomeIcon.Search);
+                return p.Y + EmptyH;
+            }
+            float gap = S(8), minW = S(250);
+            int cols = Math.Max(1, (int)((w + gap) / (minW + gap)));
+            float cw = (w - gap * (cols - 1)) / cols, ch = Math.Max(S(40), LH + Ui.TextSize("Ag", 0.82f).Y + S(2)) + S(16);
+            int rows = (shown.Count + cols - 1) / cols;
+            for (int r = 0; r < rows; r++)
+            {
+                float y = p.Y + r * (ch + gap);
+                if (!Visible(y, ch)) continue;
+                for (int c = 0; c < cols; c++)
+                {
+                    int i = r * cols + c;
+                    if (i >= shown.Count) break;
+                    DrawItem(shown[i], new Vector2(p.X + c * (cw + gap), y), new Vector2(cw, ch));
+                }
+            }
+            return p.Y + rows * ch + (rows - 1) * gap;
+        }
+
+        private void DrawItem(CollectionItem it, Vector2 a, Vector2 size)
+        {
+            var dl = Ui.Dl;
+            bool own = it.IsUnlocked;
+            var info = Info(it);
+            bool hovered = Ui.Hit($"co_it_{it.Category}_{it.Id}", a, size, out float h);
+            if (ImGui.IsItemHovered()) DrawItemTooltip(it, info);
+            _ = hovered;
+
+            Ui.Panel(dl, a, a + size, own ? Theme.Night2.With(0.85f + 0.1f * h) : Theme.Night1.With(0.55f + 0.2f * h),
+                own ? Ui.Accent.With(0.35f + 0.3f * h) : Theme.Text3.With(0.15f + 0.25f * h), 7f);
+            float icon = S(40);
+            var ip = a + new Vector2(S(8), (size.Y - icon) / 2);
+            GameIcon(it.IconId, ip, icon, own ? 1f : 0.4f);
+            if (own)
+            {
+                var cc = ip + new Vector2(icon - S(3), icon - S(3));
+                dl.AddCircleFilled(cc, S(7), Theme.Live.U32());
+                Ui.IconCentered(dl, cc, FontAwesomeIcon.Check.ToIconString(), Theme.Night0, 0.5f);
+            }
+
+            float tx = ip.X + icon + S(10), right = a.X + size.X - S(10);
+            if (it.Category == CollectionCategory.Achievements && it.Points > 0)
+            {
+                string pts = it.Points.ToString();
+                float pw = Ui.TextSize(pts, 0.85f).X;
+                Ui.Text(dl, new Vector2(right - pw, a.Y + (size.Y - Ui.TextSize(pts, 0.85f).Y) / 2), pts, own ? Theme.Gold : Theme.GoldDeep, 0.85f);
+                right -= pw + S(8);
+            }
+            float ty = a.Y + (size.Y - LH - Ui.TextSize("Ag", 0.82f).Y - S(2)) / 2;
+            Ui.Text(dl, new Vector2(tx, ty), Fit(it.Name, right - tx), own ? Theme.Text : Theme.Text2);
+            string sub = it.Category == CollectionCategory.Achievements ? it.Description
+                : info?.Sources.FirstOrDefault() ?? it.Sources?.FirstOrDefault() ?? (string.IsNullOrEmpty(info?.Patch) ? SubOf(it) : $"Patch {info!.Patch}");
+            Ui.Text(dl, new Vector2(tx, ty + LH + S(2)), Fit((sub ?? "").Replace('\n', ' '), right - tx, 0.82f), Theme.Text3, 0.82f);
+        }
+
+        private static void DrawItemTooltip(CollectionItem it, CollectInfo? info)
+        {
+            UIHelper.BeginTooltip();
+            ImGui.PushTextWrapPos(ImGui.GetFontSize() * 26f);
+            ImGui.TextColored(it.IsUnlocked ? Theme.Crystal : Theme.Text, it.Name);
+            var meta = new[] { string.IsNullOrEmpty(info?.Patch) ? "" : $"Patch {info!.Patch}", string.IsNullOrEmpty(info?.Owned) ? "" : $"{info!.Owned} of players have it", it.Points > 0 ? $"{it.Points} points" : "" }
+                .Where(s => s.Length > 0).ToArray();
+            if (meta.Length > 0) ImGui.TextColored(Theme.Text2, string.Join(" · ", meta));
+            if (it.Category == CollectionCategory.Achievements) ImGui.TextColored(Theme.Gold, $"{it.Group} › {it.Subcategory}");
+            else if (!string.IsNullOrEmpty(it.Subcategory)) ImGui.TextColored(Theme.Gold, it.Subcategory);
+            if (!string.IsNullOrEmpty(info?.Extra)) ImGui.TextColored(Theme.Text2, info!.Extra);
+            var desc = !string.IsNullOrEmpty(it.Description) ? it.Description : info?.Description ?? "";
+            if (desc.Length > 0)
+            {
                 ImGui.Separator();
-                if (item.IsUnlocked)
-                {
-                    ImGui.TextColored(Theme.Crystal, "Unlocked");
-                }
-                else
-                {
-                    ImGui.TextColored(ImGuiColors.DalamudRed, "Locked");
-                }
-                
-                if (item.Sources != null && item.Sources.Length > 0)
-                {
-                    ImGui.Spacing();
-                    ImGui.TextColored(ImGuiColors.DalamudYellow, "How to acquire:");
-                    foreach (var source in item.Sources)
-                    {
-                        ImGui.TextColored(ImGuiColors.DalamudWhite, "- " + source);
-                    }
-                }
-                
-                ImGui.EndTooltip();
+                ImGui.TextUnformatted(desc.Length > 320 ? desc[..319] + "…" : desc);
             }
-
-            ImGui.SetCursorPos(cursorPos + new Vector2(0, height + 8));
+            var sources = (info?.Sources ?? Array.Empty<string>()).Concat(it.Sources ?? Array.Empty<string>()).Distinct().ToArray();
+            if (sources.Length > 0)
+            {
+                ImGui.Separator();
+                ImGui.TextColored(Theme.Warn, "How to get it:");
+                foreach (var s in sources.Take(8)) ImGui.TextUnformatted("- " + s);
+            }
+            ImGui.Separator();
+            if (it.IsUnlocked) ImGui.TextColored(Theme.Live, "Owned");
+            else ImGui.TextColored(Theme.Bad, "Not owned yet");
+            ImGui.PopTextWrapPos();
+            UIHelper.EndTooltip();
         }
     }
 }

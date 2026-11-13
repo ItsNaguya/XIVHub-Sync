@@ -10,5 +10,9 @@ namespace XIVHubCompanion.Collections
         public CollectionCategory Category { get; set; }
         public string Subcategory { get; set; }
         public string[] Sources { get; set; }
+        /// <summary>Achievements: the type (AchievementKind: Battle, Quests, ...); Subcategory is the category inside it.</summary>
+        public string Group { get; set; } = "";
+        /// <summary>Achievement points from the game sheet.</summary>
+        public int Points { get; set; }
     }
 }
