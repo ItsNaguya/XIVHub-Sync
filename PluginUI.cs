@@ -118,8 +118,8 @@ namespace XIVHubCompanion
         private void OnStateChanged(string section, JToken? value)
         {
             if (section != "prefs.tablet" || value is not JObject o) return;
-            if (o["widgets"] is JArray w) configuration.TabletWidgets = w.Select(x => x.ToString()).ToList();
-            if (o["dock"] is JArray d) configuration.TabletDock = d.Select(x => x.ToString()).ToList();
+            if (o["widgets"] is JArray w) configuration.TabletWidgets = w.Select(x => x.ToString()).Distinct().ToList();
+            if (o["dock"] is JArray d) configuration.TabletDock = d.Select(x => x.ToString()).Distinct().ToList();
             if (o["wallpaper"]?.ToString() is { Length: > 0 } wp) configuration.TabletWallpaper = wp;
             if (o["accent"]?.ToString() is { Length: > 0 } ac) configuration.TabletAccent = ac;
             configuration.Save();

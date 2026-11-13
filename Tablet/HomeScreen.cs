@@ -57,17 +57,17 @@ namespace XIVHubCompanion.Tablet
         {
             ImGui.SetCursorScreenPos(min);
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
-            ImGui.BeginChild("Home", max - min, false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+            ImGui.BeginChild("Home", max - min, false, _config.HideScrollbars ? ImGuiWindowFlags.NoScrollbar : ImGuiWindowFlags.None);
             ImGui.SetWindowFontScale(PluginUI.AppScale);
             var dl = ImGui.GetWindowDrawList();
-            float pad = Ui.S(22), gap = Ui.S(14);
-            float x0 = min.X + pad, w = max.X - min.X - pad * 2;
-            float y = min.Y + Ui.S(16);
+            float pad = Ui.S(22), gap = Ui.S(14), top = min.Y - ImGui.GetScrollY();
+            float x0 = min.X + pad, w = max.X - min.X - pad * 2 - (ImGui.GetScrollMaxY() > 0 && !_config.HideScrollbars ? ImGui.GetStyle().ScrollbarSize : 0);
+            float y = top + Ui.S(16);
 
             y = DrawHero(dl, x0, y, w) + gap;
 
             // widgets: 3 columns
-            var shown = _config.TabletWidgets.Select(id => Widgets.FirstOrDefault(x => x.Id == id)).Where(x => x.Id != null).ToList();
+            var shown = _config.TabletWidgets.Distinct().Select(id => Widgets.FirstOrDefault(x => x.Id == id)).Where(x => x.Id != null).ToList();
             Ui.Caps(dl, new Vector2(x0, y), "At a glance");
             if (Ui.Button("home_edit", _edit ? "Done" : "Edit", new Vector2(x0 + w - Ui.S(70), y - Ui.S(5)), Ui.S(70, 24), _edit ? Kind.Primary : Kind.Ghost, _edit ? FontAwesomeIcon.Check : FontAwesomeIcon.Pen)) _edit = !_edit;
             y += Ui.S(24);
@@ -100,8 +100,11 @@ namespace XIVHubCompanion.Tablet
             // app grid
             Ui.Caps(dl, new Vector2(x0, y), "Apps");
             y += Ui.S(24);
-            DrawAppGrid(dl, x0, y, w);
+            float end = DrawAppGrid(dl, x0, y, w);
 
+            // reserve the drawn height so the child scrolls down to the last row
+            ImGui.SetCursorScreenPos(new Vector2(min.X, top));
+            ImGui.Dummy(new Vector2(1, end - top + Ui.S(16)));
             ImGui.EndChild();
             ImGui.PopStyleColor();
         }
@@ -111,7 +114,7 @@ namespace XIVHubCompanion.Tablet
             var player = PlayerName();
             int hour = DateTime.Now.Hour;
             string greet = hour < 5 ? "Good night" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-            Ui.Text(dl, new Vector2(x, y), player.Name == null ? greet : $"{greet}, {player.Name.Split(' ')[0]}", Theme.Text, 1.6f);
+            Ui.Text(dl, new Vector2(x, y), player.Name == null ? greet : $"{greet}, {player.Name}", Theme.Text, 1.6f);
             float lh = Ui.TextSize("A", 1.6f).Y;
             string sub = player.Name == null ? "Log in with a character to start." : $"{player.Name}  ·  {player.World}  ·  {player.Job}";
             Ui.Text(dl, new Vector2(x, y + lh + Ui.S(2)), sub, Theme.Text2, 0.9f);
@@ -283,7 +286,8 @@ namespace XIVHubCompanion.Tablet
         }
 
         // ---- app grid ---------------------------------------------------------------------------------------------
-        private void DrawAppGrid(ImDrawListPtr dl, float x0, float y, float w)
+        /// <returns>The bottom edge of the grid.</returns>
+        private float DrawAppGrid(ImDrawListPtr dl, float x0, float y, float w)
         {
             var apps = _ui.Apps;
             float tile = Ui.S(88), gap = Ui.S(14);
@@ -306,6 +310,7 @@ namespace XIVHubCompanion.Tablet
                 Ui.Text(dl, new Vector2(p.X + tile / 2 - Ui.TextSize(label, 0.82f).X / 2, p.Y + tile + Ui.S(5)), label, Theme.Text2, 0.82f);
                 if (click) _ui.Open(app);
             }
+            return y + ((apps.Count + perRow - 1) / perRow) * (tile + Ui.S(30));
         }
 
         private void ToggleDock(string name)

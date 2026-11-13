@@ -71,6 +71,7 @@ namespace XIVHubCompanion
 
 
             _configuration = _pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+            _configuration.TabletWidgets = _configuration.TabletWidgets.Distinct().ToList(); // heal lists doubled by the old load
             _configuration.Initialize(_pluginInterface);
             
             _collectionService = new Collections.CollectionService(_dataManager, unlockState);
