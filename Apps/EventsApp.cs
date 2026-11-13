@@ -204,6 +204,31 @@ namespace XIVHubCompanion.Apps
             });
         }
 
+        /// <summary>The next upcoming events (home widget and notifications).</summary>
+        public List<(string Title, DateTime Start)> NextEvents(int count)
+        {
+            if (!_initialFetchDone && !_isFetching)
+            {
+                var (name, world) = GetPlayerContext();
+                if (name != null) { _initialFetchDone = true; FetchData(name, world); }
+            }
+            var now = DateTime.Now;
+            var list = new List<(string, DateTime)>();
+            List<dynamic> snapshot;
+            try { snapshot = _upcomingEvents.ToList(); } catch { return list; }
+            foreach (var ev in snapshot)
+            {
+                try
+                {
+                    DateTime start = ((DateTime)ev["startDate"]).ToLocalTime();
+                    if (start < now.AddHours(-1)) continue;
+                    list.Add(((string)(ev["title"] ?? ev["name"] ?? "Event"), start));
+                }
+                catch { }
+            }
+            return list.OrderBy(x => x.Item2).Take(count).ToList();
+        }
+
         public void Draw()
         {
             if (!_initialFetchDone && !_isFetching) {

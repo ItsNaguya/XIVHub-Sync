@@ -403,6 +403,22 @@ namespace XIVHubCompanion.Apps
         }
 
         public int ActiveFavoriteCount { get; private set; } = 0;
+
+        /// <summary>Favourite nodes with their state (home widget): up now first, then by real seconds until they spawn.</summary>
+        public List<(GatheringNode Node, bool Up, double Seconds)> FavoriteTimers()
+        {
+            var list = new List<(GatheringNode, bool, double)>();
+            if (Nodes == null || Nodes.Count == 0) return list;
+            var eTime = EorzeaTimeHelper.GetEorzeaTime();
+            foreach (var favId in _favorites)
+            {
+                var node = Nodes.FirstOrDefault(n => n.id == favId);
+                if (node == null) continue;
+                bool up = EorzeaTimeHelper.IsNodeActive(node, eTime.Hour);
+                list.Add((node, up, up ? EorzeaTimeHelper.GetActiveSecondsLeft(node, eTime) : EorzeaTimeHelper.GetRealSecondsLeft(node, eTime)));
+            }
+            return list.OrderBy(x => x.Item2 ? 0 : 1).ThenBy(x => x.Item3).ToList();
+        }
         private Dictionary<string, DateTime> _lastNotified = new();
 
         public void Update()
@@ -438,6 +454,7 @@ namespace XIVHubCompanion.Apps
                             
                             string minText = _configuration.EarlyNodeNotificationMinutes == 0 ? "is active now" : $"spawns in {_configuration.EarlyNodeNotificationMinutes} minute(s)";
                             
+                            Tablet.Notifications.Post($"node:{favId}", "Gathering", $"{node.name} {minText}", node.zone, "Gathering & Fishing");
                             _chatGui.Print(new Dalamud.Game.Text.XivChatEntry
                             {
                                 Message = $"[Aetherhold] ⭐ Your favorited node '{node.name}' {minText} at {node.zone}!",

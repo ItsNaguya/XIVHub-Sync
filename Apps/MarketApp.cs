@@ -166,6 +166,11 @@ namespace XIVHubCompanion.Apps
 
         private List<DestinationGroup> _destinations = new List<DestinationGroup>();
         private List<CartItem> _cart = new List<CartItem>();
+        public int CartLines => _cart.Count;
+        public int CartQuantity => _cart.Sum(c => c.quantity);
+        public int RouteStops => _destinations.Sum(d => d.stops.Count);
+        public int RouteStopsDone => _destinations.Sum(d => d.stops.Count(s => s.checkedState));
+        public long RouteCost => _destinations.Sum(d => (long)d.totalCost);
         private int _activeTabIndex = 0;
         private Dictionary<string, MarketFavorite> _marketFavorites = new Dictionary<string, MarketFavorite>();
         

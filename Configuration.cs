@@ -62,6 +62,12 @@ namespace XIVHubCompanion
         public bool HideScrollbars { get; set; } = true;
         
         public bool OpenOnStartup { get; set; } = true;
+
+        // Tablet (3.0): home screen layout and look; shared with other devices through prefs.tablet
+        public string TabletWallpaper { get; set; } = "constellation";
+        public string TabletAccent { get; set; } = "crystal";
+        public List<string> TabletWidgets { get; set; } = new() { "retainers", "routines", "gathering", "market", "crafting", "events" };
+        public List<string> TabletDock { get; set; } = new();
         public bool StartMinimized { get; set; } = false;
 
         public bool RetainerAudioEnabled { get; set; } = true;

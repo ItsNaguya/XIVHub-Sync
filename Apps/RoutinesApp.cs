@@ -67,6 +67,13 @@ namespace XIVHubCompanion.Apps
         }
         public void Update() { }
 
+        /// <summary>Done and total visible tasks for "daily" or "weekly" (home widget).</summary>
+        public (int Done, int Total) Progress(string type)
+        {
+            var tasks = _defaultTasks.Concat(_customTasks).Where(t => t.Type == type && !_config.RoutinesHiddenTasks.Contains(t.Id)).ToList();
+            return (tasks.Count(t => _config.RoutinesChecklist.TryGetValue(t.Id, out var v) && v), tasks.Count);
+        }
+
         private readonly HubClient _sender;
         private readonly Configuration _config;
 
