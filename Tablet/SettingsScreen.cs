@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
@@ -82,6 +84,8 @@ namespace XIVHubCompanion
                 }
                 ImGui.SetCursorScreenPos(start + new Vector2(0, Ui.S(40)));
 
+                DrawDockSettings();
+
                 Section("Behaviour");
                 Switch("chk_scroll", "Hide scrollbars", configuration.HideScrollbars, v => configuration.HideScrollbars = v);
                 Switch("chk_hover", "Open Market when you hover an item for a second", configuration.EnableHoverItemFetching, v => configuration.EnableHoverItemFetching = v);
@@ -160,6 +164,51 @@ namespace XIVHubCompanion
                 ImGui.EndTabItem();
             }
             ImGui.EndTabBar();
+        }
+
+        /// <summary>Dock: which apps sit in it and in what order (empty list = all, in the default order).</summary>
+        private void DrawDockSettings()
+        {
+            Section("Dock");
+            var dock = configuration.TabletDock.Count == 0 ? _apps.Select(a => a.Name).ToList() : configuration.TabletDock.ToList();
+            var rows = dock.Concat(_apps.Select(a => a.Name).Where(n => !dock.Contains(n))).ToList();
+            var dl = ImGui.GetWindowDrawList();
+            float rowH = Ui.S(30), bs = Ui.S(24);
+            var start = ImGui.GetCursorScreenPos();
+            List<string>? changed = null;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var name = rows[i];
+                var app = AppByName(name);
+                if (app == null) continue;
+                bool on = dock.Contains(name);
+                int di = dock.IndexOf(name);
+                var p = start + new Vector2(0, i * rowH);
+                bool v = on;
+                ImGui.SetCursorScreenPos(p + new Vector2(0, (rowH - Ui.S(20)) / 2));
+                if (UIHelper.DrawPremiumSwitch("dock_" + name, ImGui.GetCursorScreenPos(), ref v))
+                {
+                    changed = dock.ToList();
+                    if (v) changed.Add(name); else changed.Remove(name);
+                }
+                Ui.Icon(dl, p + new Vector2(Ui.S(48), (rowH - ImGui.GetTextLineHeight()) / 2), IconOf(app), on ? Ui.Accent : Theme.Text3, 0.9f);
+                Ui.Text(dl, p + new Vector2(Ui.S(74), (rowH - ImGui.GetTextLineHeight()) / 2), name, on ? Theme.Text : Theme.Text3);
+                if (!on) continue;
+                float bx = p.X + Ui.S(300);
+                if (di > 0 && Ui.IconButton("dock_up_" + name, FontAwesomeIcon.ChevronUp, new Vector2(bx, p.Y + (rowH - bs) / 2), bs, "Move left"))
+                { changed = dock.ToList(); changed.RemoveAt(di); changed.Insert(di - 1, name); }
+                if (di < dock.Count - 1 && Ui.IconButton("dock_dn_" + name, FontAwesomeIcon.ChevronDown, new Vector2(bx + bs + Ui.S(4), p.Y + (rowH - bs) / 2), bs, "Move right"))
+                { changed = dock.ToList(); changed.RemoveAt(di); changed.Insert(di + 1, name); }
+            }
+            ImGui.SetCursorScreenPos(start + new Vector2(0, rows.Count * rowH + Ui.S(4)));
+            if (Ui.Button("dock_reset", "Show all, default order", ImGui.GetCursorScreenPos(), Ui.S(200, 26), Kind.Ghost, FontAwesomeIcon.Undo)) changed = new();
+            ImGui.Dummy(Ui.S(0, 30));
+            if (changed != null)
+            {
+                // all apps in the default order is stored as empty, so new apps show up by themselves
+                configuration.TabletDock = changed.SequenceEqual(_apps.Select(a => a.Name)) ? new() : changed;
+                SaveTablet();
+            }
         }
 
         /// <summary>Never show the whole token on screen (streams, screenshots).</summary>

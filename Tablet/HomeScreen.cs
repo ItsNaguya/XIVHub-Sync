@@ -97,10 +97,7 @@ namespace XIVHubCompanion.Tablet
                 y += Ui.S(36);
             }
 
-            // app grid
-            Ui.Caps(dl, new Vector2(x0, y), "Apps");
-            y += Ui.S(24);
-            float end = DrawAppGrid(dl, x0, y, w);
+            float end = y; // apps live in the dock (always visible), not twice on Home
 
             // reserve the drawn height so the child scrolls down to the last row
             ImGui.SetCursorScreenPos(new Vector2(min.X, top));
@@ -283,42 +280,6 @@ namespace XIVHubCompanion.Tablet
             if (Ui.TextSize(text, scale).X <= width) return text;
             while (text.Length > 1 && Ui.TextSize(text + "…", scale).X > width) text = text[..^1];
             return text + "…";
-        }
-
-        // ---- app grid ---------------------------------------------------------------------------------------------
-        /// <returns>The bottom edge of the grid.</returns>
-        private float DrawAppGrid(ImDrawListPtr dl, float x0, float y, float w)
-        {
-            var apps = _ui.Apps;
-            float tile = Ui.S(88), gap = Ui.S(14);
-            int perRow = Math.Max(1, (int)((w + gap) / (tile + gap)));
-            for (int i = 0; i < apps.Count; i++)
-            {
-                var app = apps[i];
-                var p = new Vector2(x0 + (i % perRow) * (tile + gap), y + (i / perRow) * (tile + Ui.S(30)));
-                bool click = Ui.Hit("app_" + app.Name, p, new Vector2(tile, tile + Ui.S(22)), out float hv);
-                bool docked = _config.TabletDock.Count == 0 || _config.TabletDock.Contains(app.Name);
-                if (ImGui.BeginPopupContextItem("app_ctx_" + app.Name))
-                {
-                    if (ImGui.MenuItem(docked ? "Remove from dock" : "Add to dock")) ToggleDock(app.Name);
-                    ImGui.EndPopup();
-                }
-                Ui.Tooltip(docked ? "Right-click: remove from dock" : "Right-click: add to dock");
-                Ui.Panel(dl, p, p + new Vector2(tile, tile), Theme.Night2.With(0.75f + 0.2f * hv), Ui.Accent.With(0.2f + 0.45f * hv), 12);
-                Ui.IconCentered(dl, p + new Vector2(tile, tile) / 2, app.Icon, UIHelper.LerpColor(Ui.Accent, Theme.Text, hv), 1.9f + 0.15f * hv);
-                string label = Fit(app.Name, tile + gap, 0.82f);
-                Ui.Text(dl, new Vector2(p.X + tile / 2 - Ui.TextSize(label, 0.82f).X / 2, p.Y + tile + Ui.S(5)), label, Theme.Text2, 0.82f);
-                if (click) _ui.Open(app);
-            }
-            return y + ((apps.Count + perRow - 1) / perRow) * (tile + Ui.S(30));
-        }
-
-        private void ToggleDock(string name)
-        {
-            var dock = _config.TabletDock.Count == 0 ? _ui.Apps.Select(a => a.Name).ToList() : _config.TabletDock;
-            if (dock.Contains(name)) dock.Remove(name); else dock.Add(name);
-            _config.TabletDock = dock;
-            _ui.SaveTablet();
         }
     }
 }
