@@ -2,772 +2,502 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Text.Json;
-using System.Net.Http;
+using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
-using Lumina.Excel.Sheets;
 using Dalamud.Interface;
-using Dalamud.Interface.Textures.TextureWraps;
-using Dalamud.Interface.Textures;
+using Lumina.Excel.Sheets;
+using Newtonsoft.Json.Linq;
+using XIVHubCompanion.Tablet;
 
 namespace XIVHubCompanion.Apps
 {
     public partial class CraftingApp
     {
-        private int _solverSelectedTarget = -1;
-        private int _solverFoodIndex = 0;
-        private int _solverPotionIndex = 0;
-        private int _solverInitialQuality = 0;
-        
-        private bool _solverRequireTargetQuality = false;
-        private bool _solverManipulation = true;
-        private bool _solverHeartAndSoul = false;
-        private bool _solverQuickInnovation = false;
+        private bool _solverLoaded, _ensureReliability, _editProfile;
+        private int _editJob = -1;
+        private volatile bool _isSolving;
+        private DateTime _lastQueuePoll = DateTime.MinValue;
+        private string _queueText = "Solving...";
+        private string? _solveError;
+        private SolveResult? _solveResult;
+        private uint _solveRecipe;
 
-        private bool _solverConfigLoaded = false;
+        private uint _ctxRecipe;
+        private int _maxProgress = 6600, _maxQuality = 14000, _maxDurability = 70, _rlvl = 640, _job;
+        private bool _expert;
+        private string _ctxName = "";
 
-        private bool _isSolving = false;
-        private DateTime _lastQueuePollTime = DateTime.MinValue;
-        private string _queueStatusText = "Calculating...";
-        private string? _solveError = null;
-        private MacroSolveResult? _solveResult = null;
-        private Recipe? _solverActiveRecipe = null;
-        
-        private int _solverMaxQuality = 14000;
-        private int _solverMaxProgress = 6600;
-        private int _solverMaxDurability = 70;
-        private int _solverRlvl = 640;
-        private int _solverProgDiv = 130;
-        private int _solverQualDiv = 115;
-        private int _solverProgMod = 100;
-        private int _solverQualMod = 100;
-
-        private bool _showCrafterProfilesModal = false;
-        private int _selectedProfileJobIndex = 0; // 0=CRP, 1=BSM... 7=CUL
-
-        private class Consumable
+        private class SolveResult
         {
-            public string Name { get; set; } = string.Empty;
-            public float CpPct { get; set; }
-            public int CpMax { get; set; }
-            public float ControlPct { get; set; }
-            public int ControlMax { get; set; }
-            public float CraftPct { get; set; }
-            public int CraftMax { get; set; }
+            public int step, progress, quality, cp, durability;
+            public List<string> actions = new();
         }
 
-        private List<Consumable> _foodList = new List<Consumable> {
-            new Consumable { Name = "None", CpPct = 0, CpMax = 0, ControlPct = 0, ControlMax = 0, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "All i Pebre (HQ) - CP +26% (100), Control +5% (115)", CpPct = 0.26f, CpMax = 100, ControlPct = 0.05f, ControlMax = 115, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "Rroneek Steak (HQ) - CP +26% (100), Control +5% (115)", CpPct = 0.26f, CpMax = 100, ControlPct = 0.05f, ControlMax = 115, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "Stuffed Peppers (HQ) - CP +26% (100), Craftsmanship +5% (115)", CpPct = 0.26f, CpMax = 100, ControlPct = 0, ControlMax = 0, CraftPct = 0.05f, CraftMax = 115 },
-            new Consumable { Name = "Vegetable Soup (HQ) - CP +26% (92), Control +5% (104)", CpPct = 0.26f, CpMax = 92, ControlPct = 0.05f, ControlMax = 104, CraftPct = 0, CraftMax = 0 }
+        // ---- consumables: the website's list (data/consumables.ts), shared through crafting.global_food/potion ----
+        private static JObject Cons(int id, string name, bool hq, int icon, int ilvl, params (string Stat, int V, int Max)[] stats)
+        {
+            var s = new JObject();
+            foreach (var (stat, v, max) in stats) s[stat] = new JObject { ["value"] = v, ["max"] = max };
+            return new JObject { ["id"] = id, ["name"] = name, ["hq"] = hq, ["icon"] = $"https://xivapi.com/i/046000/{icon:000000}.png", ["itemLevel"] = ilvl, ["stats"] = s };
+        }
+
+        private static readonly JObject[] Meals =
+        {
+            Cons(44158, "Rroneek Steak", true, 46201, 690, ("CP", 26, 92), ("Control", 5, 97)), Cons(44158, "Rroneek Steak", false, 46201, 690, ("CP", 21, 74), ("Control", 4, 78)),
+            Cons(44159, "Calamari Ripieni", true, 46202, 690, ("CP", 26, 82), ("Craftsmanship", 5, 120)), Cons(44159, "Calamari Ripieni", false, 46202, 690, ("CP", 21, 66), ("Craftsmanship", 4, 96)),
+            Cons(44160, "Pineapple Salad", true, 46203, 690, ("CP", 13, 41), ("Control", 6, 135)), Cons(44160, "Pineapple Salad", false, 46203, 690, ("CP", 10, 33), ("Control", 5, 108)),
+            Cons(40669, "All i Pebre", true, 46205, 640, ("CP", 26, 100), ("Control", 5, 115)), Cons(40669, "All i Pebre", false, 46205, 640, ("CP", 21, 80), ("Control", 4, 92)),
+            Cons(40668, "Ceviche", true, 46206, 640, ("CP", 26, 96), ("Craftsmanship", 5, 150)), Cons(40668, "Ceviche", false, 46206, 640, ("CP", 21, 76), ("Craftsmanship", 4, 120)),
+            Cons(38260, "Jhinga Biryani", true, 46182, 620, ("CP", 26, 86), ("Control", 5, 90)), Cons(38260, "Jhinga Biryani", false, 46182, 620, ("CP", 21, 69), ("Control", 4, 72)),
+            Cons(36053, "Tsai tou Vounou", true, 46175, 560, ("CP", 26, 78), ("Control", 5, 76)), Cons(36053, "Tsai tou Vounou", false, 46175, 560, ("CP", 21, 62), ("Control", 4, 61)),
+            Cons(27835, "Blood Bouillabaisse", true, 46145, 430, ("CP", 26, 66), ("Control", 5, 122)), Cons(27835, "Blood Bouillabaisse", false, 46145, 430, ("CP", 21, 53), ("Control", 4, 98)),
+            Cons(12854, "Seafood Stew", true, 46059, 150, ("CP", 15, 50), ("Control", 5, 31)), Cons(12854, "Seafood Stew", false, 46059, 150, ("CP", 12, 40), ("Control", 4, 25)),
         };
 
-        private List<Consumable> _potionList = new List<Consumable> {
-            new Consumable { Name = "None", CpPct = 0, CpMax = 0, ControlPct = 0, ControlMax = 0, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "Cunning Craftsman's Tisane (HQ) - CP +6% (27)", CpPct = 0.06f, CpMax = 27, ControlPct = 0, ControlMax = 0, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "Competent Craftsman's Tisane (HQ) - Craftsmanship +2% (36)", CpPct = 0, CpMax = 0, ControlPct = 0, ControlMax = 0, CraftPct = 0.02f, CraftMax = 36 },
-            new Consumable { Name = "Commanding Craftsman's Tisane (HQ) - Control +2% (36)", CpPct = 0, CpMax = 0, ControlPct = 0.02f, ControlMax = 36, CraftPct = 0, CraftMax = 0 },
-            new Consumable { Name = "Cunning Craftsman's Draught (HQ) - CP +6% (21)", CpPct = 0.06f, CpMax = 21, ControlPct = 0, ControlMax = 0, CraftPct = 0, CraftMax = 0 }
+        private static readonly JObject[] Potions =
+        {
+            Cons(44161, "Cunning Craftsman's Tisane", true, 46210, 690, ("CP", 6, 27)), Cons(44161, "Cunning Craftsman's Tisane", false, 46210, 690, ("CP", 5, 21)),
+            Cons(44162, "Competent Craftsman's Tisane", true, 46211, 690, ("Craftsmanship", 3, 63)), Cons(44162, "Competent Craftsman's Tisane", false, 46211, 690, ("Craftsmanship", 2, 50)),
+            Cons(44163, "Commanding Craftsman's Tisane", true, 46212, 690, ("Control", 3, 63)), Cons(44163, "Commanding Craftsman's Tisane", false, 46212, 690, ("Control", 2, 50)),
+            Cons(37752, "Cunning Craftsman's Draught", true, 46180, 580, ("CP", 6, 21)), Cons(37752, "Cunning Craftsman's Draught", false, 46180, 580, ("CP", 5, 16)),
+            Cons(37750, "Competent Craftsman's Draught", true, 46178, 580, ("Craftsmanship", 3, 50)), Cons(37750, "Competent Craftsman's Draught", false, 46178, 580, ("Craftsmanship", 2, 40)),
+            Cons(37751, "Commanding Craftsman's Draught", true, 46179, 580, ("Control", 3, 50)), Cons(37751, "Commanding Craftsman's Draught", false, 46179, 580, ("Control", 2, 40)),
         };
 
-        private readonly string[] _jobNamesFull = { "Carpenter", "Blacksmith", "Armorer", "Goldsmith", "Leatherworker", "Weaver", "Alchemist", "Culinarian" };
-        private readonly string[] _jobNamesShort = { "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL" };
-        private readonly uint[] _macroJobIconIds = { 62008, 62009, 62010, 62011, 62012, 62013, 62014, 62015 }; // Crafting class icons
+        private static string CKey(JToken? c) => c is JObject o ? $"{Int(o, "id")}-{(o["hq"]?.Type == JTokenType.Boolean && (bool)o["hq"]! ? "hq" : "nq")}" : "";
+        private static string CLabel(JToken? c) => c is JObject o
+            ? $"{Str(o, "name")} {(CKey(o).EndsWith("hq") ? "(HQ)" : "(NQ)")}"
+            : "None";
+        private static string CStats(JToken? c) => c is JObject o && o["stats"] is JObject s
+            ? string.Join(", ", s.Properties().Select(p => $"{p.Name} +{Int(p.Value, "value")}% (max {Int(p.Value, "max")})")) : "";
 
-        private class MacroSolveResult
+        // ---- crafter profiles: crafting.job_profiles (the live stats from the game land there too) ----------------
+        private JObject Profile(int job)
         {
-            public int step { get; set; }
-            public int progress { get; set; }
-            public int quality { get; set; }
-            public int cp { get; set; }
-            public int durability { get; set; }
-            public List<string> actions { get; set; } = new List<string>();
+            if ((_sender.GetState(SecProfiles) as JObject)?[Jobs[job]] is JObject e) return e;
+            var cfg = _configuration.CrafterProfiles.Count > job ? _configuration.CrafterProfiles[job] : null;
+            return new JObject
+            {
+                ["level"] = cfg?.Level ?? 100, ["craftsmanship"] = cfg?.Craftsmanship > 0 ? cfg.Craftsmanship : 4800, ["control"] = cfg?.Control > 0 ? cfg.Control : 4700,
+                ["cp"] = cfg?.Cp > 0 ? cfg.Cp : 600, ["specialist"] = false, ["manipulation"] = true, ["heartAndSoul"] = false, ["quickInnovation"] = false,
+            };
         }
 
-        private void InitializeCrafterProfiles()
+        private static bool Flag(JObject p, string key, bool def) => p[key]?.Type == JTokenType.Boolean ? (bool)p[key]! : def;
+
+        private void SetProfile(int job, string key, JToken value, bool allJobs = false)
         {
-            if (_configuration.CrafterProfiles == null) _configuration.CrafterProfiles = new List<CrafterProfile>();
-            while (_configuration.CrafterProfiles.Count < 8)
+            var all = (_sender.GetState(SecProfiles) as JObject)?.DeepClone() as JObject ?? new JObject();
+            for (int j = 0; j < 8; j++)
             {
-                _configuration.CrafterProfiles.Add(new CrafterProfile { Name = _jobNamesFull[_configuration.CrafterProfiles.Count], Level = 100, Craftsmanship = 4000, Control = 4000, Cp = 600 });
+                if (!allJobs && j != job) continue;
+                var e = all[Jobs[j]] as JObject ?? (JObject)Profile(j).DeepClone();
+                e[key] = value.DeepClone();
+                all[Jobs[j]] = e;
+                if (_configuration.CrafterProfiles.Count > j && value.Type == JTokenType.Integer)
+                {
+                    var c = _configuration.CrafterProfiles[j];
+                    int v = (int)value;
+                    if (key == "level") c.Level = v; else if (key == "craftsmanship") c.Craftsmanship = v; else if (key == "control") c.Control = v; else if (key == "cp") c.Cp = v;
+                }
             }
+            _sender.SetState(SecProfiles, all);
+            _configuration.Save();
         }
 
-        private void DrawMacroSolverTab()
+        private (int Craft, int Control, int Cp) Buffed(JObject p)
         {
-            if (!_solverConfigLoaded)
+            int craft = Int(p, "craftsmanship"), control = Int(p, "control"), cp = Int(p, "cp");
+            int bc = craft, bo = control, bp = cp;
+            foreach (var c in new[] { _sender.GetState(SecFood), _sender.GetState(SecPotion) })
             {
-                _solverSelectedTarget = _configuration.SolverSelectedTarget;
-                _solverFoodIndex = _configuration.SolverFoodIndex;
-                _solverPotionIndex = _configuration.SolverPotionIndex;
-                _solverInitialQuality = _configuration.SolverInitialQuality;
-                _solverRequireTargetQuality = _configuration.SolverRequireTargetQuality;
-                _solverManipulation = _configuration.SolverManipulation;
-                _solverHeartAndSoul = _configuration.SolverHeartAndSoul;
-                _solverQuickInnovation = _configuration.SolverQuickInnovation;
-                _solverConfigLoaded = true;
+                if ((c as JObject)?["stats"] is not JObject s) continue;
+                if (s["Craftsmanship"] is JObject a) bc += Math.Min(Int(a, "max"), (int)Math.Floor(craft * Int(a, "value") / 100.0));
+                if (s["Control"] is JObject b) bo += Math.Min(Int(b, "max"), (int)Math.Floor(control * Int(b, "value") / 100.0));
+                if (s["CP"] is JObject d) bp += Math.Min(Int(d, "max"), (int)Math.Floor(cp * Int(d, "value") / 100.0));
             }
-
-            InitializeCrafterProfiles();
-
-            Vector2 tabContentPos = ImGui.GetCursorScreenPos();
-            Vector2 tabContentSize = ImGui.GetContentRegionAvail();
-
-            float width = ImGui.GetContentRegionAvail().X;
-            float padding = 15f * PluginUI.AppScale;
-            float innerWidthHeader = width - (20f * PluginUI.AppScale); // 10 padding on each side
-            
-            // --- TOP HEADER: SETUP ---
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            UIHelper.BeginSmoothChild("solverHeader", new Vector2(width, 70f * PluginUI.AppScale), true);
-            DrawSolverHeader(innerWidthHeader);
-            ImGui.EndChild();
-            ImGui.PopStyleVar();
-            
-            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-            
-            // --- MIDDLE BODY: DETAILS & RESULTS ---
-            float footerHeight = 45f * PluginUI.AppScale;
-            float bodyHeight = ImGui.GetContentRegionAvail().Y - footerHeight - 20f * PluginUI.AppScale; // Increased margin to prevent scrolling
-            
-            float leftPanelWidth = width * 0.40f;
-            float rightPanelWidth = width - leftPanelWidth - 20f * PluginUI.AppScale;
-
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            UIHelper.BeginSmoothChild("solverConfig", new Vector2(leftPanelWidth, bodyHeight), true);
-            DrawSolverConfig();
-            ImGui.EndChild();
-            ImGui.PopStyleVar();
-
-            ImGui.SameLine();
-
-            ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            UIHelper.BeginSmoothChild("solverResult", new Vector2(rightPanelWidth, bodyHeight), true);
-            DrawSolverResult();
-            ImGui.EndChild();
-            ImGui.PopStyleVar();
-
-            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-            
-            // --- BOTTOM FOOTER: ACTION ---
-            DrawSolverFooter(width);
-
-            DrawCrafterProfilesModal(tabContentPos, tabContentSize);
-
-            if (_solverSelectedTarget != _configuration.SolverSelectedTarget ||
-                _solverFoodIndex != _configuration.SolverFoodIndex ||
-                _solverPotionIndex != _configuration.SolverPotionIndex ||
-                _solverInitialQuality != _configuration.SolverInitialQuality ||
-                _solverRequireTargetQuality != _configuration.SolverRequireTargetQuality ||
-                _solverManipulation != _configuration.SolverManipulation ||
-                _solverHeartAndSoul != _configuration.SolverHeartAndSoul ||
-                _solverQuickInnovation != _configuration.SolverQuickInnovation)
-            {
-                _configuration.SolverSelectedTarget = _solverSelectedTarget;
-                _configuration.SolverFoodIndex = _solverFoodIndex;
-                _configuration.SolverPotionIndex = _solverPotionIndex;
-                _configuration.SolverInitialQuality = _solverInitialQuality;
-                _configuration.SolverRequireTargetQuality = _solverRequireTargetQuality;
-                _configuration.SolverManipulation = _solverManipulation;
-                _configuration.SolverHeartAndSoul = _solverHeartAndSoul;
-                _configuration.SolverQuickInnovation = _solverQuickInnovation;
-                _configuration.Save();
-            }
+            return (bc, bo, bp);
         }
 
-        private void DrawSolverHeader(float width)
+        private void UpdateRecipeContext()
         {
-            float recipeWidth = width * 0.4f;
-            float foodWidth = width * 0.28f;
-            float potionWidth = width * 0.28f;
-            
-            ImGui.BeginGroup();
-            
-            // Labels
-            ImGui.TextColored(Theme.Text2, "Recipe Selection");
-            ImGui.SameLine(recipeWidth + 10f * PluginUI.AppScale);
-            ImGui.TextColored(Theme.Text2, "Food");
-            ImGui.SameLine(recipeWidth + foodWidth + 20f * PluginUI.AppScale);
-            ImGui.TextColored(Theme.Text2, "Potion");
-            
-            ImGui.Dummy(new Vector2(0, 2f * PluginUI.AppScale));
-            
-            // Combos
-            var pipelineNames = new System.Collections.Generic.List<string>();
-            if (_configuration.CraftingActivePipeline.Count == 0)
+            if (_configuration.SolverSelectedTarget < 0 || _configuration.SolverSelectedTarget >= _targets.Count) { _ctxRecipe = 0; return; }
+            var t = _targets[_configuration.SolverSelectedTarget];
+            uint rid = TargetRecipe(t);
+            if (rid == _ctxRecipe) return;
+            var r = _dataManager.GetExcelSheet<Recipe>().GetRowOrDefault(rid);
+            if (!r.HasValue) { _ctxRecipe = 0; return; }
+            _ctxRecipe = rid;
+            _ctxName = Str(t, "name");
+            var rl = r.Value.RecipeLevelTable.Value;
+            _rlvl = (int)r.Value.RecipeLevelTable.RowId;
+            _maxProgress = (int)Math.Floor(rl.Difficulty * r.Value.DifficultyFactor / 100f);
+            _maxQuality = (int)Math.Floor(rl.Quality * r.Value.QualityFactor / 100f);
+            _maxDurability = (int)Math.Floor(rl.Durability * r.Value.DurabilityFactor / 100f);
+            _expert = r.Value.IsExpert;
+            _job = r.Value.CraftType.RowId < 8 ? (int)r.Value.CraftType.RowId : 0;
+            if (_solveRecipe != rid) { _solveResult = null; _solveError = null; }
+        }
+
+        // =============================================================================================================
+        private void DrawSolverView()
+        {
+            var dl = Ui.Dl;
+            var top = ImGui.GetCursorScreenPos();
+            var avail = ImGui.GetContentRegionAvail();
+            if (!_solverLoaded)
             {
-                pipelineNames.Add("No active targets");
-                _solverSelectedTarget = -1;
+                _solverLoaded = true;
+                if (_configuration.SolverSelectedTarget < 0 && _targets.Count > 0) _configuration.SolverSelectedTarget = 0;
+            }
+            if (_targets.Count == 0)
+            {
+                Ui.Panel(dl, top, top + new Vector2(avail.X, S(110)), Theme.Night2.With(0.6f));
+                Ui.Text(dl, top + S(18, 18), "No recipes in your pipeline yet.", Theme.Text);
+                Ui.Text(dl, top + new Vector2(S(18), S(24) + LH), "The solver makes a macro for any recipe in your pipeline.", Theme.Text3, 0.9f);
+                Advance(top, S(110));
+                return;
+            }
+            if (_configuration.SolverSelectedTarget >= _targets.Count) _configuration.SolverSelectedTarget = 0;
+            UpdateRecipeContext();
+
+            // ---- recipe / food / potion --------------------------------------------------------------------------
+            float gap = S(10), rw = avail.X * 0.4f, fw = (avail.X - rw - gap * 2) / 2;
+            Ui.Caps(dl, top, "Recipe");
+            Ui.Caps(dl, top + new Vector2(rw + gap, 0), "Food");
+            Ui.Caps(dl, top + new Vector2(rw + fw + gap * 2, 0), "Potion");
+            float cy = top.Y + LH + S(4);
+            PushFrame();
+            ImGui.SetCursorScreenPos(new Vector2(top.X, cy));
+            ImGui.SetNextItemWidth(rw);
+            if (ImGui.BeginCombo("##cf_srec", _ctxName.Length > 0 ? _ctxName : "Pick a recipe"))
+            {
+                for (int i = 0; i < _targets.Count; i++)
+                    if (ImGui.Selectable($"{Str(_targets[i], "name")} ({Str(_targets[i], "job")} Lv {Int(_targets[i], "level")})##t{i}", i == _configuration.SolverSelectedTarget))
+                    {
+                        _configuration.SolverSelectedTarget = i;
+                        _configuration.Save();
+                        UpdateRecipeContext();
+                    }
+                ImGui.EndCombo();
+            }
+            ConsumableCombo("##cf_sfood", SecFood, Meals, new Vector2(top.X + rw + gap, cy), fw);
+            ConsumableCombo("##cf_spot", SecPotion, Potions, new Vector2(top.X + rw + fw + gap * 2, cy), fw);
+            PopFrame();
+            float y = cy + FrameH + S(12);
+
+            bool wide = avail.X >= S(760);
+            float colW = wide ? (avail.X - gap) * 0.45f : avail.X;
+            ImGui.SetCursorScreenPos(new Vector2(top.X, y));
+            if (UIHelper.BeginSmoothChild("cf_solver", new Vector2(avail.X, top.Y + avail.Y - y)))
+            {
+                var cp = ImGui.GetCursorScreenPos();
+                float leftBottom = DrawSolverSetup(cp, colW - S(10));
+                if (wide)
+                {
+                    float rightBottom = DrawSolverResult(cp + new Vector2(colW + gap, 0), avail.X - colW - gap - S(10));
+                    Advance(cp, Math.Max(leftBottom, rightBottom) - cp.Y + S(4));
+                }
+                else
+                {
+                    float rb = DrawSolverResult(new Vector2(cp.X, leftBottom + S(10)), colW - S(10));
+                    Advance(cp, rb - cp.Y + S(4));
+                }
+            }
+            ImGui.EndChild();
+        }
+
+        private void ConsumableCombo(string id, string section, JObject[] list, Vector2 pos, float width)
+        {
+            var cur = _sender.GetState(section);
+            ImGui.SetCursorScreenPos(pos);
+            ImGui.SetNextItemWidth(width);
+            if (ImGui.BeginCombo(id, CLabel(cur)))
+            {
+                if (ImGui.Selectable("None", cur is not JObject)) _sender.SetState(section, null);
+                foreach (var c in list)
+                    if (ImGui.Selectable($"{CLabel(c)}  ·  {CStats(c)}##{CKey(c)}", CKey(c) == CKey(cur))) _sender.SetState(section, c.DeepClone());
+                ImGui.EndCombo();
+            }
+            if (cur is JObject && ImGui.IsItemHovered()) UIHelper.DrawTooltip(CStats(cur));
+        }
+
+        /// <summary>Crafter stats, profile editor, starting quality and options; returns the bottom edge.</summary>
+        private float DrawSolverSetup(Vector2 p, float w)
+        {
+            var dl = Ui.Dl;
+            dl.ChannelsSplit(2);
+            dl.ChannelsSetCurrent(1);
+            float pad = S(14), x = p.X + pad, iw = w - pad * 2, y = p.Y + pad;
+            int job = _editJob >= 0 ? _editJob : _job;
+            var prof = Profile(job);
+            var (bc, bo, bp) = Buffed(prof);
+
+            GameIcon(JobIcons[job], new Vector2(x, y), S(30));
+            Ui.Text(dl, new Vector2(x + S(40), y), JobNames[job], Theme.Gold);
+            Ui.Text(dl, new Vector2(x + S(40), y + LH), $"Level {Int(prof, "level")}", Theme.Text3, 0.85f);
+            if (Ui.IconButton("cf_pedit", FontAwesomeIcon.Edit, new Vector2(x + iw - S(28), y), S(28), _editProfile ? "Close the editor" : "Edit crafter stats", null, _editProfile))
+            {
+                _editProfile = !_editProfile;
+                _editJob = -1;
+            }
+            y += Math.Max(S(30), LH * 2) + S(10);
+
+            if (_editProfile)
+            {
+                var at = new Vector2(x, y);
+                for (int j = 0; j < 8; j++)
+                    if (ChipToggle("cf_pj" + j, Jobs[j], j == job, ref at, x, x + iw, 0.8f)) _editJob = j == _job ? -1 : j;
+                y = at.Y + ChipH(0.8f) + S(10);
+                float fw2 = (iw - S(10)) / 2;
+                void Field(string label, string key, float fx, float fy, int max)
+                {
+                    Ui.Text(dl, new Vector2(fx, fy), label, Theme.Text3, 0.8f);
+                    int v = Int(prof, key);
+                    if (IntInput("##cf_pf" + key, ref v, fw2, new Vector2(fx, fy + LH * 0.8f + S(2)), 1, max)) SetProfile(job, key, v);
+                }
+                Field("Level", "level", x, y, 100);
+                Field("CP", "cp", x + fw2 + S(10), y, 9999);
+                y += LH * 0.8f + FrameH + S(10);
+                Field("Craftsmanship", "craftsmanship", x, y, 99999);
+                Field("Control", "control", x + fw2 + S(10), y, 99999);
+                y += LH * 0.8f + FrameH + S(10);
+                if (Ui.Button("cf_pcopy", "Copy to all crafters", new Vector2(x, y), new Vector2(iw, S(28)), Kind.Ghost, FontAwesomeIcon.Copy))
+                    foreach (var k in new[] { "level", "craftsmanship", "control", "cp" }) SetProfile(job, k, Int(prof, k), allJobs: true);
+                y += S(28) + S(8);
+                Ui.Text(dl, new Vector2(x, y), Fit("Stats update from your crafter in game (without food).", iw, 0.8f), Theme.Text3, 0.8f);
+                y += LH + S(10);
             }
             else
             {
-                var sheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Recipe>();
-                foreach (var t in _configuration.CraftingActivePipeline)
+                void Row(string label, int baseV, int buffV)
                 {
-                    var rec = sheet?.GetRow(t.RecipeId);
-                    if (rec != null && rec.Value.RowId != 0)
+                    Ui.Text(dl, new Vector2(x, y), label, Theme.Text2);
+                    var v = buffV.ToString("N0");
+                    var vs = Ui.TextSize(v);
+                    Ui.Text(dl, new Vector2(x + iw - vs.X, y), v, buffV > baseV ? Theme.Live : Theme.Text);
+                    if (buffV > baseV)
                     {
-                        pipelineNames.Add(rec.Value.ItemResult.Value.Name.ToString());
+                        var bs = $"{baseV:N0} +{buffV - baseV}";
+                        Ui.Text(dl, new Vector2(x + iw - vs.X - Ui.TextSize(bs, 0.8f).X - S(10), y + S(2)), bs, Theme.Text3, 0.8f);
                     }
-                    else pipelineNames.Add($"Unknown ({t.RecipeId})");
+                    y += LH + S(6);
                 }
-                if (_solverSelectedTarget < 0 || _solverSelectedTarget >= pipelineNames.Count) _solverSelectedTarget = 0;
+                Row("Craftsmanship", Int(prof, "craftsmanship"), bc);
+                Row("Control", Int(prof, "control"), bo);
+                Row("CP", Int(prof, "cp"), bp);
+                y += S(6);
             }
 
-            ImGui.PushItemWidth(recipeWidth);
-            if (ImGui.BeginCombo("##solverTarget", _solverSelectedTarget >= 0 ? pipelineNames[_solverSelectedTarget] : "None"))
-            {
-                for (int i = 0; i < pipelineNames.Count; i++)
-                {
-                    bool isSelected = (_solverSelectedTarget == i);
-                    if (ImGui.Selectable(pipelineNames[i], isSelected))
-                    {
-                        _solverSelectedTarget = i;
-                        UpdateSolverRecipeContext();
-                    }
-                    if (isSelected) ImGui.SetItemDefaultFocus();
-                }
-                ImGui.EndCombo();
-            }
-            ImGui.PopItemWidth();
-            
-            if (_solverActiveRecipe == null && _solverSelectedTarget >= 0 && _solverSelectedTarget < _configuration.CraftingActivePipeline.Count)
-            {
-                UpdateSolverRecipeContext();
-            }
-            
-            ImGui.SameLine(recipeWidth + 10f * PluginUI.AppScale);
-            ImGui.PushItemWidth(foodWidth);
-            if (ImGui.BeginCombo("##solverFood", _foodList[_solverFoodIndex].Name))
-            {
-                for (int i = 0; i < _foodList.Count; i++)
-                {
-                    bool isSelected = (_solverFoodIndex == i);
-                    if (ImGui.Selectable(_foodList[i].Name, isSelected)) _solverFoodIndex = i;
-                    if (isSelected) ImGui.SetItemDefaultFocus();
-                }
-                ImGui.EndCombo();
-            }
-            ImGui.PopItemWidth();
-            
-            ImGui.SameLine(recipeWidth + foodWidth + 20f * PluginUI.AppScale);
-            ImGui.PushItemWidth(potionWidth);
-            if (ImGui.BeginCombo("##solverPotion", _potionList[_solverPotionIndex].Name))
-            {
-                for (int i = 0; i < _potionList.Count; i++)
-                {
-                    bool isSelected = (_solverPotionIndex == i);
-                    if (ImGui.Selectable(_potionList[i].Name, isSelected)) _solverPotionIndex = i;
-                    if (isSelected) ImGui.SetItemDefaultFocus();
-                }
-                ImGui.EndCombo();
-            }
-            ImGui.PopItemWidth();
-            
-            ImGui.EndGroup();
-        }
+            // ---- recipe ---------------------------------------------------------------------------------------------
+            Ui.Caps(dl, new Vector2(x, y), "Recipe");
+            y += LH + S(2);
+            var info = $"Progress {_maxProgress:N0} · Quality {_maxQuality:N0} · Durability {_maxDurability} · rlvl {_rlvl}{(_expert ? " · Expert" : "")}";
+            Ui.Text(dl, new Vector2(x, y), Fit(info, iw, 0.85f), Theme.Text2, 0.85f);
+            y += LH + S(12);
 
-        private void DrawSolverFooter(float width)
-        {
+            // ---- starting quality --------------------------------------------------------------------------------
+            Ui.Caps(dl, new Vector2(x, y), "Starting quality");
+            y += LH + S(4);
+            int maxIq = _maxQuality / 2, iq = Math.Clamp(_configuration.SolverInitialQuality, 0, maxIq);
+            float inW = S(84);
+            ImGui.SetCursorScreenPos(new Vector2(x, y));
+            PushFrame();
+            ImGui.SetNextItemWidth(iw - inW - S(8));
+            if (ImGui.SliderInt("##cf_iqs", ref iq, 0, Math.Max(1, maxIq), "")) { _configuration.SolverInitialQuality = iq; }
+            if (ImGui.IsItemDeactivatedAfterEdit()) _configuration.Save();
+            PopFrame();
+            if (IntInput("##cf_iqi", ref iq, inW, new Vector2(x + iw - inW, y), 0, maxIq)) { _configuration.SolverInitialQuality = iq; _configuration.Save(); }
+            y += FrameH + S(12);
+
+            // ---- options: per crafter on the website (job_profiles), solver settings here ----------------------------
+            Ui.Caps(dl, new Vector2(x, y), "Solver options");
+            y += LH + S(6);
+            void Opt(string id, string label, string key, bool def)
+            {
+                bool v = Flag(prof, key, def);
+                if (Check("cf_o" + key, label, ref v, new Vector2(x, y))) SetProfile(job, key, v);
+                y += Math.Max(S(18), LH) + S(8);
+            }
+            Opt("m", "Manipulation", "manipulation", true);
+            Opt("h", "Heart and Soul", "heartAndSoul", false);
+            Opt("q", "Quick Innovation", "quickInnovation", false);
+            bool req = _configuration.SolverRequireTargetQuality;
+            if (Check("cf_oreq", "Must reach full quality", ref req, new Vector2(x, y))) { _configuration.SolverRequireTargetQuality = req; _configuration.Save(); }
+            y += Math.Max(S(18), LH) + S(8);
+            Check("cf_orel", "Safe from bad luck (slower)", ref _ensureReliability, new Vector2(x, y));
+            y += Math.Max(S(18), LH) + S(14);
+
+            // ---- solve --------------------------------------------------------------------------------------------
+            float sh = S(40);
             if (_isSolving)
             {
-                if ((DateTime.Now - _lastQueuePollTime).TotalSeconds > 2)
+                if ((DateTime.Now - _lastQueuePoll).TotalSeconds > 2)
                 {
-                    _lastQueuePollTime = DateTime.Now;
-                    Task.Run(async () => {
-                        try {
-                            var resStr = await _sender.SolverQueueAsync() ?? throw new Exception();
-                            using var doc = JsonDocument.Parse(resStr);
-                            int running = doc.RootElement.GetProperty("running").GetInt32();
-                            int queued = doc.RootElement.GetProperty("queued").GetInt32();
-                            _queueStatusText = $"Running: {running} | Queued: {queued}";
-                        } catch {
-                            _queueStatusText = "Calculating...";
+                    _lastQueuePoll = DateTime.Now;
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var j = JObject.Parse(await _sender.SolverQueueAsync() ?? "{}");
+                            _queueText = $"Solving... running {Int(j, "running")}, waiting {Int(j, "queued")}";
                         }
+                        catch { _queueText = "Solving..."; }
                     });
                 }
-
-                var textSize = ImGui.CalcTextSize(_queueStatusText);
-                float cardWidth = Math.Max(250f * PluginUI.AppScale, textSize.X + 40f * PluginUI.AppScale);
-                
-                Vector2 cPos = ImGui.GetCursorScreenPos() + new Vector2((width - cardWidth) * 0.5f, 0);
-                
-                UIHelper.DrawCard(cPos, new Vector2(cardWidth, 45f * PluginUI.AppScale), Theme.Bad.With(0.14f), 4f * PluginUI.AppScale, Theme.Gold.With(0.3f));
-                
-                Vector2 textPos = cPos + new Vector2((cardWidth - textSize.X) * 0.5f, (45f * PluginUI.AppScale - textSize.Y) * 0.5f);
-                ImGui.SetCursorScreenPos(textPos);
-                ImGui.TextColored(Theme.Gold, _queueStatusText);
-                
-                ImGui.SetCursorScreenPos(cPos + new Vector2(0, 50f * PluginUI.AppScale));
+                var sp = new Vector2(x, y);
+                Ui.Panel(dl, sp, sp + new Vector2(iw, sh), Theme.Gold.With(0.1f), Theme.GoldLine, 6f);
+                Ui.Dot(dl, sp + new Vector2(S(18), sh / 2), 4f, Theme.Gold, pulse: true);
+                Ui.Text(dl, sp + new Vector2(S(32), (sh - LH) / 2), Fit(_queueText, iw - S(40)), Theme.Gold);
             }
-            else
-            {
-                Vector2 cPos = ImGui.GetCursorScreenPos();
-                
-                // Pulsing animation
-                float t = (float)ImGui.GetTime();
-                float pulse = 0.5f + 0.5f * (float)Math.Sin(t * 3.0f);
-                
-                // Sleek premium blue colors
-                Vector4 baseBg = new Vector4(0.12f + 0.05f * pulse, 0.28f + 0.05f * pulse, 0.52f + 0.1f * pulse, 1.0f);
-                Vector4 hoverBg = Theme.CrystalDeep;
-                Vector4 textColor = Theme.Text;
-                Vector4 textHover = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-
-                if (UIHelper.DrawPremiumButton("solveBtn", cPos, new Vector2(width, 45f * PluginUI.AppScale), "SOLVE MACRO", baseBg, hoverBg, textColor, textHover))
-                {
-                    RunSolver();
-                }
-                ImGui.SetCursorScreenPos(cPos + new Vector2(0, 50f * PluginUI.AppScale));
-            }
-
+            else if (Ui.Button("cf_solve", "Solve macro", new Vector2(x, y), new Vector2(iw, sh), Kind.Primary, FontAwesomeIcon.Magic) && _ctxRecipe != 0)
+                RunSolver(prof, bc, bo, bp);
+            y += sh + S(8);
             if (_solveError != null)
             {
-                ImGui.TextColored(Theme.Bad, _solveError);
+                foreach (var line in Wrap(_solveError, iw, 0.85f)) { Ui.Text(dl, new Vector2(x, y), line, Theme.Bad, 0.85f); y += LH * 0.9f + S(2); }
+                y += S(4);
             }
+
+            float bottom = y + pad - S(8);
+            dl.ChannelsSetCurrent(0);
+            Ui.Panel(dl, p, new Vector2(p.X + w, bottom), Theme.Night2.With(0.6f));
+            dl.ChannelsMerge();
+            return bottom;
         }
 
-        private void DrawSolverConfig()
+        /// <summary>Bars and the macros; returns the bottom edge.</summary>
+        private float DrawSolverResult(Vector2 p, float w)
         {
-            // Crafter Stats Display
-            ImGui.TextColored(Theme.Text2, "Crafter Stats");
-            
-            float buttonWidth = 120f * PluginUI.AppScale;
-            ImGui.SameLine(ImGui.GetContentRegionAvail().X - buttonWidth);
-            if (UIHelper.DrawPremiumButton("crafterProfilesBtn", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), "\uF013 Edit Profiles", Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
+            var dl = Ui.Dl;
+            dl.ChannelsSplit(2);
+            dl.ChannelsSetCurrent(1);
+            float pad = S(14), x = p.X + pad, iw = w - pad * 2, y = p.Y + pad;
+            var r = _solveRecipe == _ctxRecipe ? _solveResult : null;
+            Ui.Caps(dl, new Vector2(x, y), "Result");
+            if (r != null)
             {
-                _showCrafterProfilesModal = true;
+                var ok = $"{r.step} steps";
+                Ui.Text(dl, new Vector2(x + iw - Ui.TextSize(ok, 0.85f).X, y), ok, Theme.Live, 0.85f);
             }
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            int activeJobIndex = 0;
-            if (_solverActiveRecipe != null && _solverActiveRecipe.Value.CraftType.RowId >= 0 && _solverActiveRecipe.Value.CraftType.RowId < 8)
+            y += LH + S(8);
+
+            var (_, _, bp) = Buffed(Profile(_job));
+            int iq = _configuration.SolverInitialQuality;
+            void Bar(string label, int cur, int max, Vector4 col)
             {
-                activeJobIndex = (int)_solverActiveRecipe.Value.CraftType.RowId;
+                Ui.Text(dl, new Vector2(x, y), label, Theme.Text3, 0.82f);
+                var v = $"{cur:N0} / {max:N0}";
+                Ui.Text(dl, new Vector2(x + iw - Ui.TextSize(v, 0.82f).X, y), v, Theme.Text2, 0.82f);
+                y += LH * 0.82f + S(4);
+                Ui.Progress(dl, new Vector2(x, y), iw, max > 0 ? (float)cur / max : 0, col, 6f);
+                y += S(14);
             }
-            var profile = _configuration.CrafterProfiles[activeJobIndex];
-            
-            var food = _foodList[_solverFoodIndex];
-            var pot = _potionList[_solverPotionIndex];
-            
-            int buffedCp = profile.Cp + Math.Min(food.CpMax, (int)(profile.Cp * food.CpPct)) + Math.Min(pot.CpMax, (int)(profile.Cp * pot.CpPct));
-            int buffedControl = profile.Control + Math.Min(food.ControlMax, (int)(profile.Control * food.ControlPct)) + Math.Min(pot.ControlMax, (int)(profile.Control * pot.ControlPct));
-            int buffedCraft = profile.Craftsmanship + Math.Min(food.CraftMax, (int)(profile.Craftsmanship * food.CraftPct)) + Math.Min(pot.CraftMax, (int)(profile.Craftsmanship * pot.CraftPct));
+            Bar("Progress", r?.progress ?? 0, _maxProgress, Theme.Crystal);
+            Bar("Quality", Math.Min(_maxQuality, (r?.quality ?? 0) + iq), _maxQuality, Theme.Violet);
+            Bar("Durability", r != null ? Math.Max(0, r.durability) : _maxDurability, _maxDurability, Theme.Warn);
+            Bar("CP", r != null ? Math.Max(0, r.cp) : bp, bp, Theme.Gold);
+            y += S(6);
 
-            float statLabelW = 120f * PluginUI.AppScale;
-            ImGui.TextColored(Theme.Text3, "Job Level"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, profile.Level.ToString());
-            ImGui.TextColored(Theme.Text3, "Craftsmanship"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedCraft.ToString());
-            ImGui.TextColored(Theme.Text3, "Control"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedControl.ToString());
-            ImGui.TextColored(Theme.Text3, "CP"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedCp.ToString());
-
-            ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
-
-            // Starting Quality
-            ImGui.TextColored(Theme.Text2, "Starting Quality");
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            int maxInitQual = _solverMaxQuality / 2;
-            float inputQualWidth = 60f * PluginUI.AppScale;
-            
-            ImGui.PushItemWidth(ImGui.GetContentRegionAvail().X - inputQualWidth - 65f * PluginUI.AppScale);
-            ImGui.SliderInt("##initQSlider", ref _solverInitialQuality, 0, maxInitQual, "");
-            ImGui.PopItemWidth();
-            ImGui.SameLine();
-            
-            ImGui.PushItemWidth(inputQualWidth);
-            ImGui.InputInt("##initQInput", ref _solverInitialQuality, 0);
-            ImGui.PopItemWidth();
-            if (_solverInitialQuality > maxInitQual) _solverInitialQuality = maxInitQual;
-            if (_solverInitialQuality < 0) _solverInitialQuality = 0;
-            
-            ImGui.SameLine();
-            ImGui.TextColored(Theme.Text3, $"/ {maxInitQual}");
-
-            ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
-            
-            // Solver Settings
-            ImGui.TextColored(Theme.Text2, "Solver Settings");
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            UIHelper.DrawPremiumCheckboxWithText("##reqQ", "Solution must reach target quality", ref _solverRequireTargetQuality);
-            
-            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-            
-            UIHelper.DrawPremiumCheckboxWithText("##manip", "Manipulation", ref _solverManipulation);
-            UIHelper.DrawPremiumCheckboxWithText("##hns", "Heart and Soul", ref _solverHeartAndSoul);
-            UIHelper.DrawPremiumCheckboxWithText("##qi", "Quick Innovation", ref _solverQuickInnovation);
-        }
-
-        private void DrawCrafterProfilesModal(Vector2 contentPos, Vector2 contentSize)
-        {
-            if (UIHelper.BeginPremiumModal("Crafter Profiles", ref _showCrafterProfilesModal, contentPos, contentSize, new Vector2(400f * PluginUI.AppScale, 350f * PluginUI.AppScale), out float alpha))
-            {
-                Vector2 p = ImGui.GetCursorScreenPos();
-                var drawList = ImGui.GetWindowDrawList();
-                
-                // Header (Close button)
-                ImGui.SetCursorScreenPos(p + new Vector2(ImGui.GetWindowWidth() - 35f * PluginUI.AppScale, 5f * PluginUI.AppScale));
-                ImGui.PushFont(UiBuilder.IconFont);
-                if (UIHelper.DrawPremiumButton("##closeProfiles", ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.15f, 0.15f, 0.2f, alpha), new Vector4(0.3f, 0.3f, 0.4f, alpha), new Vector4(1f, 1f, 1f, alpha), Vector4.Zero))
-                {
-                    _showCrafterProfilesModal = false;
-                    _configuration.Save();
-                }
-                ImGui.PopFont();
-                
-                // Job Icons Row
-                ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 40f * PluginUI.AppScale));
-                for (int i = 0; i < 8; i++)
-                {
-                    if (i > 0) ImGui.SameLine(0, 15f * PluginUI.AppScale);
-                    
-                    Vector2 iconPos = ImGui.GetCursorScreenPos();
-                    bool isSelected = (_selectedProfileJobIndex == i);
-                    
-                    var tex = _textureProvider.GetFromGameIcon(new GameIconLookup(_macroJobIconIds[i]));
-                    if (tex != null && tex.GetWrapOrDefault() != null)
-                    {
-                        if (!isSelected) ImGui.PushStyleColor(ImGuiCol.Button, 0); // Transparent if not selected
-                        else ImGui.PushStyleColor(ImGuiCol.Button, ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 0.3f, 0.4f, 0.5f)));
-                        
-                        ImGui.PushID($"job_{i}");
-                        if (ImGui.ImageButton(tex.GetWrapOrDefault()!.Handle, new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale)))
-                        {
-                            _selectedProfileJobIndex = i;
-                        }
-                        ImGui.PopID();
-                        ImGui.PopStyleColor();
-                    }
-                    else
-                    {
-                        if (ImGui.Button(_jobNamesShort[i], new Vector2(30f * PluginUI.AppScale, 30f * PluginUI.AppScale))) _selectedProfileJobIndex = i;
-                    }
-                    
-                    // Small text label below icon
-                    var labelSize = ImGui.CalcTextSize(_jobNamesShort[i]);
-                    drawList.AddText(iconPos + new Vector2(16f * PluginUI.AppScale - labelSize.X/2, 32f * PluginUI.AppScale), isSelected ? ImGui.ColorConvertFloat4ToU32(Theme.Gold) : ImGui.ColorConvertFloat4ToU32(Theme.Text3), _jobNamesShort[i]);
-                }
-                
-                ImGui.Dummy(new Vector2(0, 40f * PluginUI.AppScale));
-                
-                // Selected Stats Area
-                Vector2 statsPos = ImGui.GetCursorScreenPos();
-                UIHelper.DrawCard(statsPos, new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y), new Vector4(0.08f, 0.09f, 0.11f, 1f), 8f * PluginUI.AppScale, Theme.Night3);
-                
-                ImGui.SetCursorScreenPos(statsPos + new Vector2(15f * PluginUI.AppScale, 15f * PluginUI.AppScale));
-                ImGui.TextColored(Theme.Gold, $"{_jobNamesFull[_selectedProfileJobIndex]} Stats");
-                
-                ImGui.SameLine(ImGui.GetWindowWidth() - 120f * PluginUI.AppScale);
-                ImGui.PushFont(UiBuilder.IconFont);
-                string copyBtnTxt = "\uF0C5";
-                ImGui.PopFont();
-                copyBtnTxt += " Copy to all";
-                
-                if (UIHelper.DrawPremiumButton("##copyToAll", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(100f * PluginUI.AppScale, 24f * PluginUI.AppScale), copyBtnTxt, new Vector4(0.15f, 0.15f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.4f, 1f), Vector4.One, Vector4.One))
-                {
-                    var source = _configuration.CrafterProfiles[_selectedProfileJobIndex];
-                    for (int i=0; i<8; i++)
-                    {
-                        if (i == _selectedProfileJobIndex) continue;
-                        _configuration.CrafterProfiles[i].Level = source.Level;
-                        _configuration.CrafterProfiles[i].Craftsmanship = source.Craftsmanship;
-                        _configuration.CrafterProfiles[i].Control = source.Control;
-                        _configuration.CrafterProfiles[i].Cp = source.Cp;
-                    }
-                    _configuration.Save();
-                }
-                
-                ImGui.SetCursorScreenPos(statsPos + new Vector2(15f * PluginUI.AppScale, 50f * PluginUI.AppScale));
-                
-                var profile = _configuration.CrafterProfiles[_selectedProfileJobIndex];
-                
-                float inputW = 160f * PluginUI.AppScale;
-                
-                ImGui.BeginGroup();
-                ImGui.TextColored(Theme.Text2, "JOB LEVEL");
-                ImGui.SetNextItemWidth(inputW);
-                int lvl = profile.Level;
-                if (ImGui.InputInt("##p_lvl", ref lvl, 0)) { profile.Level = lvl; _configuration.Save(); }
-                
-                ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-                
-                ImGui.TextColored(Theme.Text2, "CONTROL");
-                ImGui.SetNextItemWidth(inputW);
-                int ctrl = profile.Control;
-                if (ImGui.InputInt("##p_ctrl", ref ctrl, 0)) { profile.Control = ctrl; _configuration.Save(); }
-                ImGui.EndGroup();
-                
-                ImGui.SameLine(190f * PluginUI.AppScale);
-                
-                ImGui.BeginGroup();
-                ImGui.TextColored(Theme.Text2, "CRAFTSMANSHIP");
-                ImGui.SetNextItemWidth(inputW);
-                int crft = profile.Craftsmanship;
-                if (ImGui.InputInt("##p_crft", ref crft, 0)) { profile.Craftsmanship = crft; _configuration.Save(); }
-                
-                ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-                
-                ImGui.TextColored(Theme.Text2, "CP");
-                ImGui.SetNextItemWidth(inputW);
-                int cp = profile.Cp;
-                if (ImGui.InputInt("##p_cp", ref cp, 0)) { profile.Cp = cp; _configuration.Save(); }
-                ImGui.EndGroup();
-
-                UIHelper.EndPremiumModal();
-            }
-        }
-
-        private void DrawSolverResult()
-        {
-            ImGui.TextColored(Theme.Text2, "Simulation Result");
-            if (_solveResult != null)
-            {
-                ImGui.SameLine(ImGui.GetContentRegionAvail().X - 100f * PluginUI.AppScale);
-                ImGui.TextColored(Theme.Live, $"SUCCESS ({_solveResult.step} steps)");
-            }
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-
-            int simProg = _solveResult != null ? Math.Min(100, (int)(((float)_solveResult.progress / _solverMaxProgress) * 100)) : 0;
-            int simQual = _solveResult != null ? Math.Min(100, (int)(((float)(_solveResult.quality + _solverInitialQuality) / _solverMaxQuality) * 100)) : Math.Min(100, (int)(((float)_solverInitialQuality / _solverMaxQuality) * 100));
-            int simDur = _solveResult != null ? Math.Max(0, _solveResult.durability) : _solverMaxDurability;
-            
-            // Re-calc buffed CP for the bar max
-            int activeJobIndex = 0;
-            if (_solverActiveRecipe != null && _solverActiveRecipe.Value.CraftType.RowId >= 0 && _solverActiveRecipe.Value.CraftType.RowId < 8)
-                activeJobIndex = (int)_solverActiveRecipe.Value.CraftType.RowId;
-            var profile = _configuration.CrafterProfiles[activeJobIndex];
-            var food = _foodList[_solverFoodIndex];
-            var pot = _potionList[_solverPotionIndex];
-            int buffedCp = profile.Cp + Math.Min(food.CpMax, (int)(profile.Cp * food.CpPct)) + Math.Min(pot.CpMax, (int)(profile.Cp * pot.CpPct));
-
-            int simCp = _solveResult != null ? Math.Max(0, _solveResult.cp) : buffedCp;
-
-            DrawProgressBar("PROGRESS", simProg, _solveResult != null ? _solveResult.progress : 0, _solverMaxProgress, new Vector4(0.1f, 0.7f, 0.8f, 1f));
-            DrawProgressBar("QUALITY", simQual, _solveResult != null ? _solveResult.quality + _solverInitialQuality : _solverInitialQuality, _solverMaxQuality, new Vector4(0.2f, 0.4f, 0.9f, 1f));
-            DrawProgressBar("DURABILITY", (int)(((float)simDur / _solverMaxDurability) * 100), simDur, _solverMaxDurability, new Vector4(0.6f, 0.3f, 0.1f, 1f));
-            DrawProgressBar("CP", buffedCp > 0 ? (int)(((float)simCp / buffedCp) * 100) : 0, simCp, buffedCp, new Vector4(0.6f, 0.1f, 0.6f, 1f));
-
-            ImGui.Dummy(new Vector2(0, 15f * PluginUI.AppScale));
-
-            ImGui.TextColored(Theme.Text2, "Generated Macro");
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            Vector2 pMac = ImGui.GetCursorScreenPos();
-            Vector2 mSize = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y);
-            UIHelper.DrawCard(pMac, mSize, new Vector4(0, 0, 0, 0.4f), 6f * PluginUI.AppScale, Theme.Night3);
-            
-            ImGui.SetCursorScreenPos(pMac + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            ImGui.BeginChild("macroTextScroll", mSize - new Vector2(20f * PluginUI.AppScale, 20f * PluginUI.AppScale), false);
-            
-            var blocks = GenerateMacroBlocks();
+            var blocks = MacroBlocks(r);
             if (blocks.Count == 0)
             {
-                ImGui.TextColored(Theme.Text3, "Run simulation to generate action sequence...");
+                Ui.Text(dl, new Vector2(x, y), "Solve to get your macro.", Theme.Text3);
+                y += LH + S(6);
             }
-            else
+            for (int i = 0; i < blocks.Count; i++)
             {
-                for (int i = 0; i < blocks.Count; i++)
-                {
-                    string block = blocks[i];
-                    ImGui.TextColored(Theme.Text2, $"Macro #{i + 1}");
-                    
-                    float buttonWidth = 100f * PluginUI.AppScale;
-                    ImGui.SameLine(ImGui.GetContentRegionAvail().X - buttonWidth - 15f * PluginUI.AppScale);
-                    
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    string mcopyTxt = "\uF0C5";
-                    ImGui.PopFont();
-                    mcopyTxt += $" Copy #{i + 1}";
-                    
-                    if (UIHelper.DrawPremiumButton($"copyMacro{i}", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), mcopyTxt, Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
-                    {
-                        ImGui.SetClipboardText(block);
-                    }
-                    
-                    ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-                    
-                    ImGui.PushStyleColor(ImGuiCol.FrameBg, 0);
-                    ImGui.PushStyleColor(ImGuiCol.Text, ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 0.7f, 0.5f, 1f)));
-                    
-                    int lineCount = block.Split('\n').Length;
-                    float height = (lineCount * ImGui.GetTextLineHeight()) + ImGui.GetStyle().FramePadding.Y * 2;
-                    
-                    ImGui.InputTextMultiline($"##macro{i}", ref block, 1024, new Vector2(-1, height), ImGuiInputTextFlags.ReadOnly);
-                    
-                    ImGui.PopStyleColor(2);
-                    
-                    if (i < blocks.Count - 1)
-                    {
-                        ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-                        ImGui.Separator();
-                        ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-                    }
-                }
+                Ui.Caps(dl, new Vector2(x, y + S(4)), blocks.Count > 1 ? $"Macro {i + 1} of {blocks.Count}" : "Macro", Theme.Gold);
+                if (Ui.Button("cf_copy" + i, "Copy", new Vector2(x + iw - S(96), y), new Vector2(S(96), S(28)), Kind.Ghost, FontAwesomeIcon.Copy))
+                    ImGui.SetClipboardText(blocks[i]);
+                y += S(34);
+                var lines = blocks[i].Split('\n');
+                float bh = lines.Length * (LH * 0.85f + S(2)) + S(16);
+                var bp0 = new Vector2(x, y);
+                dl.AddRectFilled(bp0, bp0 + new Vector2(iw, bh), Theme.Night0.With(0.6f).U32(), S(6));
+                float ly = y + S(8);
+                foreach (var l in lines) { Ui.Text(dl, new Vector2(x + S(10), ly), Fit(l, iw - S(20), 0.85f), Theme.Live.With(0.9f), 0.85f); ly += LH * 0.85f + S(2); }
+                y += bh + S(10);
             }
-            ImGui.EndChild();
+
+            float bottom = y + pad - S(8);
+            dl.ChannelsSetCurrent(0);
+            Ui.Panel(dl, p, new Vector2(p.X + w, bottom), Theme.Night2.With(0.6f));
+            dl.ChannelsMerge();
+            return bottom;
         }
 
-        private void DrawProgressBar(string label, int percent, int current, int max, Vector4 color)
+        private static List<string> Wrap(string text, float width, float scale)
         {
-            ImGui.TextColored(Theme.Text3, label);
-            ImGui.SameLine(120f * PluginUI.AppScale);
-            
-            Vector2 p = ImGui.GetCursorScreenPos();
-            float w = ImGui.GetContentRegionAvail().X;
-            float h = 14f * PluginUI.AppScale; // Sleeker
-            
-            ImGui.GetWindowDrawList().AddRectFilled(p, p + new Vector2(w, h), ImGui.ColorConvertFloat4ToU32(Theme.Night1.With(0.8f)), 4f);
-            if (percent > 0)
-            {
-                if (percent > 100) percent = 100;
-                ImGui.GetWindowDrawList().AddRectFilled(p, p + new Vector2(w * (percent / 100f), h), ImGui.ColorConvertFloat4ToU32(color), 4f);
-            }
-            
-            string txt = $"{current} / {max}";
-            var tSize = ImGui.CalcTextSize(txt);
-            ImGui.GetWindowDrawList().AddText(p + new Vector2(10f * PluginUI.AppScale, h / 2 - tSize.Y / 2), ImGui.ColorConvertFloat4ToU32(new Vector4(1,1,1,1)), txt);
-            
-            ImGui.Dummy(new Vector2(0, h + 8f * PluginUI.AppScale));
-        }
-
-        private void UpdateSolverRecipeContext()
-        {
-            if (_solverSelectedTarget < 0 || _solverSelectedTarget >= _configuration.CraftingActivePipeline.Count) return;
-            var t = _configuration.CraftingActivePipeline[_solverSelectedTarget];
-            var sheet = _dataManager.GetExcelSheet<Recipe>();
-            var rec = sheet?.GetRow(t.RecipeId);
-            if (rec != null && rec.Value.RowId != 0)
-            {
-                _solverActiveRecipe = rec.Value;
-                
-                var rlvl = rec.Value.RecipeLevelTable.Value;
-                if (rlvl.RowId != 0)
-                {
-                    _solverRlvl = (int)rlvl.RowId;
-                    
-                    _solverProgDiv = rlvl.ProgressDivider;
-                    _solverQualDiv = rlvl.QualityDivider;
-                    _solverProgMod = rlvl.ProgressModifier;
-                    _solverQualMod = rlvl.QualityModifier;
-
-                    _solverMaxProgress = (int)Math.Floor(rlvl.Difficulty * rec.Value.DifficultyFactor / 100f);
-                    _solverMaxQuality = (int)Math.Floor(rlvl.Quality * rec.Value.QualityFactor / 100f);
-                    _solverMaxDurability = (int)Math.Floor(rlvl.Durability * rec.Value.DurabilityFactor / 100f);
-                }
-            }
-        }
-
-        private List<string> GenerateMacroBlocks()
-        {
-            if (_solveResult == null || _solveResult.actions == null || _solveResult.actions.Count == 0) return new List<string>();
             var lines = new List<string>();
-            foreach (var act in _solveResult.actions)
+            var cur = "";
+            foreach (var word in text.Split(' '))
             {
-                lines.Add($"/ac \"{act}\" <wait.3>");
+                var next = cur.Length == 0 ? word : cur + " " + word;
+                if (Ui.TextSize(next, scale).X > width && cur.Length > 0) { lines.Add(cur); cur = word; }
+                else cur = next;
             }
-            
-            int maxLines = 14;
+            if (cur.Length > 0) lines.Add(cur);
+            return lines;
+        }
+
+        /// <summary>In-game macros hold 15 lines: 14 actions and an echo per block.</summary>
+        private static List<string> MacroBlocks(SolveResult? r)
+        {
             var blocks = new List<string>();
-            
+            if (r == null || r.actions.Count == 0) return blocks;
+            var lines = r.actions.Select(a => $"/ac \"{a}\" <wait.3>").ToList();
             if (lines.Count <= 15)
             {
-                // Can fit all in one macro without needing an echo at the end (or with echo)
-                string block = string.Join("\n", lines);
-                if (lines.Count < 15) block += "\n/echo Craft finished! <se.8>";
-                blocks.Add(block);
+                blocks.Add(string.Join("\n", lines) + (lines.Count < 15 ? "\n/echo Craft finished! <se.8>" : ""));
+                return blocks;
             }
-            else
+            for (int i = 0; i < lines.Count; i += 14)
             {
-                for (int i = 0; i < lines.Count; i += maxLines)
-                {
-                    var blockLines = lines.Skip(i).Take(maxLines).ToList();
-                    if (i + maxLines >= lines.Count)
-                    {
-                        if (blockLines.Count < 15) blockLines.Add("/echo Craft finished! <se.8>");
-                    }
-                    else
-                    {
-                        blockLines.Add($"/echo Macro #{(i / maxLines) + 1} finished! <se.8>");
-                    }
-                    blocks.Add(string.Join("\n", blockLines));
-                }
+                var b = lines.Skip(i).Take(14).ToList();
+                b.Add(i + 14 >= lines.Count ? "/echo Craft finished! <se.8>" : $"/echo Macro #{i / 14 + 1} finished! <se.8>");
+                blocks.Add(string.Join("\n", b));
             }
-            
             return blocks;
         }
 
-        private async void RunSolver()
+        private async void RunSolver(JObject prof, int craft, int control, int cp)
         {
-            if (_solverSelectedTarget < 0) return;
-            
+            if (_isSolving) return;
             _isSolving = true;
-            _queueStatusText = "Calculating...";
-            _lastQueuePollTime = DateTime.MinValue;
+            _queueText = "Solving...";
+            _lastQueuePoll = DateTime.MinValue;
             _solveError = null;
-            _solveResult = null;
-
-            int activeJobIndex = 0;
-            if (_solverActiveRecipe != null && _solverActiveRecipe.Value.CraftType.RowId >= 0 && _solverActiveRecipe.Value.CraftType.RowId < 8)
-                activeJobIndex = (int)_solverActiveRecipe.Value.CraftType.RowId;
-            
-            var profile = _configuration.CrafterProfiles[activeJobIndex];
-            var food = _foodList[_solverFoodIndex];
-            var pot = _potionList[_solverPotionIndex];
-            
-            int buffedCp = profile.Cp + Math.Min(food.CpMax, (int)(profile.Cp * food.CpPct)) + Math.Min(pot.CpMax, (int)(profile.Cp * pot.CpPct));
-            int buffedControl = profile.Control + Math.Min(food.ControlMax, (int)(profile.Control * food.ControlPct)) + Math.Min(pot.ControlMax, (int)(profile.Control * pot.ControlPct));
-            int buffedCraft = profile.Craftsmanship + Math.Min(food.CraftMax, (int)(profile.Craftsmanship * food.CraftPct)) + Math.Min(pot.CraftMax, (int)(profile.Craftsmanship * pot.CraftPct));
-
+            uint rid = _ctxRecipe;
+            var body = new
+            {
+                stats = new
+                {
+                    level = Int(prof, "level", 100), craftsmanship = craft, control, cp,
+                    manipulation = Flag(prof, "manipulation", true), heartAndSoul = Flag(prof, "heartAndSoul", false), quickInnovation = Flag(prof, "quickInnovation", false),
+                },
+                recipe = new { progress = _maxProgress, quality = _maxQuality, durability = _maxDurability, rlvl = _rlvl, isExpert = _expert },
+                hqInitialQuality = Math.Clamp(_configuration.SolverInitialQuality, 0, _maxQuality),
+                settings = new { requireTargetQuality = _configuration.SolverRequireTargetQuality, ensureReliability = _ensureReliability },
+            };
             try
             {
-                var reqBody = new
+                var json = await _sender.SolveAsync(body);
+                JObject? j = null;
+                try { if (json != null) j = JObject.Parse(json); } catch { }
+                var actions = (j?["actions"] as JArray)?.Select(a => a.ToString()).ToList();
+                if (actions != null && actions.Count > 0)
                 {
-                    stats = new
+                    _solveResult = new SolveResult
                     {
-                        level = profile.Level,
-                        craftsmanship = buffedCraft,
-                        control = buffedControl,
-                        cp = buffedCp,
-                        manipulation = _solverManipulation,
-                        heartAndSoul = _solverHeartAndSoul,
-                        quickInnovation = _solverQuickInnovation
-                    },
-                    recipe = new
-                    {
-                        progress = _solverMaxProgress,
-                        quality = _solverMaxQuality,
-                        durability = _solverMaxDurability,
-                        rlvl = _solverRlvl,
-                        progressDivider = _solverProgDiv,
-                        qualityDivider = _solverQualDiv,
-                        progressModifier = _solverProgMod,
-                        qualityModifier = _solverQualMod
-                    },
-                    hqInitialQuality = _solverInitialQuality,
-                    settings = new
-                    {
-                        requireTargetQuality = _solverRequireTargetQuality
-                    }
-                };
-
-                string? resJson = await _sender.SolveAsync(reqBody);
-                MacroSolveResult? result = null;
-                try { if (resJson != null) result = JsonSerializer.Deserialize<MacroSolveResult>(resJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); } catch { }
-                if (result?.actions != null && result.actions.Count > 0) _solveResult = result;
-                else _solveError = $"Solver error: {resJson ?? "no answer from Aetherhold"}";
+                        step = Int(j, "step", actions.Count), progress = Int(j, "progress"), quality = Int(j, "quality"), cp = Int(j, "cp"), durability = Int(j, "durability"), actions = actions,
+                    };
+                    _solveRecipe = rid;
+                }
+                else _solveError = Str(j, "error") is { Length: > 0 } e ? e : "No answer from Aetherhold. Try again in a moment.";
             }
-            catch (Exception ex)
-            {
-                _solveError = "Failed to run solver: " + ex.Message;
-            }
-            finally
-            {
-                _isSolving = false;
-            }
+            catch (Exception ex) { _solveError = "The solver failed: " + ex.Message; }
+            finally { _isSolving = false; }
         }
     }
 }

@@ -4,568 +4,334 @@ using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
-using Dalamud.Interface.Textures;
-using Dalamud.Interface.Textures.TextureWraps;
 using Lumina.Excel.Sheets;
-
+using Newtonsoft.Json.Linq;
+using XIVHubCompanion.Tablet;
 
 namespace XIVHubCompanion.Apps
 {
     public partial class CraftingApp
     {
-        private string _reqLevelMin = "";
-        private string _reqLevelMax = "";
-        private string _iLvlMin = "";
-        private string _iLvlMax = "";
-        private string _rLvlMin = "";
-        private string _rLvlMax = "";
-        private int _craftedByJob = -1;
-        private bool _craftableOnly = false;
-        private bool _collectableOnly = false;
-
-        private class SearchResultWrapper
-        {
-            public Recipe Recipe { get; set; }
-            public ISharedImmediateTexture IconTexture { get; set; }
-            public ISharedImmediateTexture JobIconTexture { get; set; }
-        }
-
-        private List<SearchResultWrapper> _searchResults = new List<SearchResultWrapper>();
-        private bool _hasSearched = false;
-
-        private string[] _jobAbbreviations = { "Any", "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL" };
-        private uint[] _jobIconIds = { 0, 62108, 62109, 62110, 62111, 62112, 62113, 62114, 62115 }; 
-
-        private bool _showFilters = false;
-        
+        // ---- search state -------------------------------------------------------------------------------------------
         private string _searchQuery = "";
+        private int _reqLevelMin, _reqLevelMax, _iLvlMin, _iLvlMax, _rLvlMin, _rLvlMax;
+        private int _craftedByJob = -1;
+        private bool _collectableOnly;
+        private bool _showFilters;
+        private int _sortMode; // 0 relevance, 1 name, 2 level, 3 iLvl
+        private readonly HashSet<string> _selectedJobs = new();
+        private readonly List<Recipe> _searchResults = new();
+        private bool _hasSearched;
+        private readonly Dictionary<uint, int> _addQuantities = new();
+        private uint _justAdded;
+        private DateTime _justAddedAt;
 
-        private int _sortMode = 0; // 0 = Relevance, 1 = Name, 2 = Level, 3 = iLvl
-        private bool _sortDesc = true;
-        
-        private HashSet<string> _selectedJobs = new HashSet<string>();
-
-        private Dictionary<string, uint> _jobIcons = new Dictionary<string, uint>
+        private static readonly string[] SortNames = { "Relevance", "Name", "Level", "iLvl" };
+        private static readonly string[] WornBy =
         {
-            {"PLD", 62119}, {"WAR", 62121}, {"DRK", 62132}, {"GNB", 62137},
-            {"WHM", 62124}, {"SCH", 62128}, {"AST", 62133}, {"SGE", 62140},
-            {"MNK", 62120}, {"DRG", 62122}, {"NIN", 62130}, {"SAM", 62134}, {"RPR", 62139}, {"VPR", 62141},
-            {"BRD", 62123}, {"MCH", 62131}, {"DNC", 62138},
-            {"BLM", 62125}, {"SMN", 62127}, {"RDM", 62135}, {"PCT", 62142}, {"BLU", 62136}
+            "PLD", "WAR", "DRK", "GNB", "WHM", "SCH", "AST", "SGE", "MNK", "DRG", "NIN", "SAM", "RPR", "VPR", "BRD", "MCH", "DNC", "BLM", "SMN", "RDM", "PCT",
+            "GLA", "MRD", "CNJ", "PGL", "LNC", "ROG", "ARC", "THM", "ACN", "MIN", "BTN", "FSH",
+            "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL",
         };
-        private string[] _combatJobs = { "PLD","WAR","DRK","GNB","WHM","SCH","AST","SGE","MNK","DRG","NIN","SAM","RPR","VPR","BRD","MCH","DNC","BLM","SMN","RDM","PCT","BLU" };
 
-        private Dictionary<string, uint> _classIcons = new Dictionary<string, uint>
+        private void DrawSearchView()
         {
-            {"GLA", 62101}, {"MRD", 62103}, {"CNJ", 62106},
-            {"PGL", 62102}, {"LNC", 62104}, {"ROG", 62129},
-            {"ARC", 62105}, {"THM", 62107}, {"ACN", 62126}
-        };
-        private string[] _classes = { "GLA","MRD","CNJ","PGL","LNC","ROG","ARC","THM","ACN" };
+            var avail = ImGui.GetContentRegionAvail();
+            var top = ImGui.GetCursorScreenPos();
+            bool wide = avail.X >= S(760);
+            float draftW = wide ? Math.Max(S(280), avail.X * 0.32f) : avail.X;
+            float leftW = wide ? avail.X - draftW - S(12) : avail.X;
 
-        private Dictionary<string, uint> _dolIcons = new Dictionary<string, uint>
-        {
-            {"MIN", 62116}, {"BTN", 62117}, {"FSH", 62118}
-        };
-        private string[] _dol = { "MIN", "BTN", "FSH" };
-
-        private Dictionary<string, uint> _dohIcons = new Dictionary<string, uint>
-        {
-            {"CRP", 62108}, {"BSM", 62109}, {"ARM", 62110}, {"GSM", 62111},
-            {"LTW", 62112}, {"WVR", 62113}, {"ALC", 62114}, {"CUL", 62115}
-        };
-        private string[] _doh = { "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL" };
-
-        private Dictionary<int, int> _addQuantities = new Dictionary<int, int>();
-
-        private void DrawAddItemsTab()
-        {
-            float width = ImGui.GetContentRegionAvail().X;
-            float draftPanelWidth = 320f * PluginUI.AppScale;
-            float centerWidth = width - draftPanelWidth - 20f * PluginUI.AppScale;
-
-            UIHelper.BeginSmoothChild("mainSearchPanel", new Vector2(centerWidth, 0), false);
-            
-            if (_showFilters)
+            // search bar: input, sort, filters
+            float bh = FrameH, sortW = S(128);
+            if (Input("##cf_q", ref _searchQuery, "Search recipes by item name", leftW - sortW - bh - S(16), top)) PerformSearch();
+            var sortPos = new Vector2(top.X + leftW - sortW - bh - S(8), top.Y);
+            ImGui.SetCursorScreenPos(sortPos);
+            PushFrame();
+            ImGui.SetNextItemWidth(sortW);
+            if (ImGui.BeginCombo("##cf_sort", SortNames[_sortMode]))
             {
-                float filterLeftWidth = 220f * PluginUI.AppScale;
-                float wornByWidth = ImGui.GetContentRegionAvail().X - filterLeftWidth - 15f * PluginUI.AppScale;
-                
-                ImGui.BeginGroup();
-                DrawFiltersLeft(filterLeftWidth);
-                ImGui.EndGroup();
-                
-                ImGui.SameLine(0, 15f * PluginUI.AppScale);
-                
-                ImGui.BeginGroup();
-                DrawWornBy(wornByWidth);
-                ImGui.EndGroup();
-            }
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            ImGui.Separator();
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            DrawSearchAndSortBar();
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            DrawSearchResults();
-            
-            ImGui.EndChild();
-
-            ImGui.SameLine();
-            UIHelper.BeginSmoothChild("draftPanel", new Vector2(draftPanelWidth, 0), true);
-            DrawDraftPipeline();
-            ImGui.EndChild();
-        }
-
-        private void DrawFiltersLeft(float width)
-        {
-            Vector2 p = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, Theme.Night3.With(0.5f));
-            
-            ImGui.BeginChild("filtersLeftInner", new Vector2(width, 285f * PluginUI.AppScale), false);
-            ImGui.SetCursorScreenPos(p + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            
-            float inputWidth = (width - 40f * PluginUI.AppScale) / 2f;
-
-            ImGui.TextColored(Theme.Text2, "REQUIRED LEVEL");
-            ImGui.PushItemWidth(inputWidth);
-            ImGui.InputText("##rmin", ref _reqLevelMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##rmax", ref _reqLevelMax, 10);
-            ImGui.PopItemWidth();
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            ImGui.TextColored(Theme.Text2, "ITEM LEVEL");
-            ImGui.PushItemWidth(inputWidth);
-            ImGui.InputText("##imin", ref _iLvlMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##imax", ref _iLvlMax, 10);
-            ImGui.PopItemWidth();
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            ImGui.TextColored(Theme.Text2, "RECIPE LEVEL");
-            ImGui.PushItemWidth(inputWidth);
-            ImGui.InputText("##rlmin", ref _rLvlMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##rlmax", ref _rLvlMax, 10);
-            ImGui.PopItemWidth();
-
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Text2, "CRAFTED BY");
-            string[] jobs = { "Any Crafter", "Carpenter", "Blacksmith", "Armorer", "Goldsmith", "Leatherworker", "Weaver", "Alchemist", "Culinarian" };
-            int currentComboIndex = _craftedByJob + 1;
-            ImGui.PushItemWidth(width - 20f * PluginUI.AppScale);
-            if (ImGui.BeginCombo("##craftedby", jobs[currentComboIndex]))
-            {
-                for (int i = 0; i < jobs.Length; i++)
-                {
-                    if (ImGui.Selectable(jobs[i], currentComboIndex == i))
-                    {
-                        _craftedByJob = i - 1;
-                        PerformSearch();
-                    }
-                }
+                for (int i = 0; i < SortNames.Length; i++) if (ImGui.Selectable(SortNames[i], i == _sortMode)) _sortMode = i;
                 ImGui.EndCombo();
             }
-            ImGui.PopItemWidth();
-
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            
-            Vector2 cbP = ImGui.GetCursorScreenPos();
-            ImGui.SetCursorScreenPos(cbP + new Vector2(5f * PluginUI.AppScale, 0));
-            if (UIHelper.DrawPremiumCheckbox("##craftable", ImGui.GetCursorScreenPos(), ref _craftableOnly)) PerformSearch();
-            ImGui.SameLine(); ImGui.Text("Craftable");
-            ImGui.SameLine(width / 2f + 5f * PluginUI.AppScale);
-            if (UIHelper.DrawPremiumCheckbox("##collectable", ImGui.GetCursorScreenPos(), ref _collectableOnly)) PerformSearch();
-            ImGui.SameLine(); ImGui.Text("Collectable");
-            
-            ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-
-            Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawPremiumButton("resetFilters", btnPos, new Vector2(width - 20f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Reset All Filters", Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
-            {
-                _reqLevelMin = ""; _reqLevelMax = "";
-                _iLvlMin = ""; _iLvlMax = "";
-                _rLvlMin = ""; _rLvlMax = "";
-                _craftedByJob = -1;
-                _craftableOnly = false;
-                _collectableOnly = false;
-                _selectedJobs.Clear();
-                _searchQuery = "";
-                PerformSearch();
-            }
-            
-            ImGui.EndChild();
-        }
-
-        private void DrawWornBy(float width)
-        {
-            Vector2 p = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, Theme.Night3.With(0.5f));
-            
-            ImGui.BeginChild("wornByInner", new Vector2(width, 285f * PluginUI.AppScale), false);
-            ImGui.SetCursorPosY(10f * PluginUI.AppScale);
-            float centerX = ImGui.GetCursorPosX() + width / 2f - 30f * PluginUI.AppScale;
-            ImGui.SetCursorPosX(centerX);
-            ImGui.TextColored(Theme.Text2, "WORN BY");
-            
-            ImGui.SetCursorPos(new Vector2(15f * PluginUI.AppScale, 40f * PluginUI.AppScale));
-            DrawIconGridRow("Job", _combatJobs, _jobIcons);
-            
-            ImGui.SetCursorPosX(15f * PluginUI.AppScale);
-            DrawIconGridRow("Class", _classes, _classIcons);
-            
-            ImGui.SetCursorPosX(15f * PluginUI.AppScale);
-            DrawIconGridRow("DoL", _dol, _dolIcons);
-            
-            ImGui.SetCursorPosX(15f * PluginUI.AppScale);
-            DrawIconGridRow("DoH", _doh, _dohIcons);
-            
-            ImGui.EndChild();
-        }
-        
-        private void DrawIconGridRow(string label, string[] jobs, Dictionary<string, uint> ids)
-        {
-            ImGui.TextColored(Theme.Text, label);
-            ImGui.SameLine(70f * PluginUI.AppScale);
-            
-            float startX = ImGui.GetCursorPosX();
-            float x = startX;
-            float y = ImGui.GetCursorPosY();
-            float btnSize = 26f * PluginUI.AppScale;
-            float gap = 4f * PluginUI.AppScale;
-            float maxWidth = ImGui.GetContentRegionAvail().X;
-            
-            foreach (var job in jobs)
-            {
-                if (x + btnSize + gap > startX + maxWidth)
-                {
-                    x = startX;
-                    y += btnSize + gap;
-                }
-                
-                ImGui.SetCursorPos(new Vector2(x, y));
-                
-                bool selected = _selectedJobs.Contains(job);
-                Vector4 bg = selected ? new Vector4(0, 0.8f, 1f, 0.15f) : new Vector4(0, 0, 0, 0);
-                Vector4 border = selected ? new Vector4(0, 0.8f, 1f, 1f) : Theme.Night3.With(0.5f);
-                
-                Vector2 bp = ImGui.GetCursorScreenPos();
-                ImGui.GetWindowDrawList().AddRectFilled(bp, bp + new Vector2(btnSize, btnSize), ImGui.ColorConvertFloat4ToU32(bg), 6f);
-                ImGui.GetWindowDrawList().AddRect(bp, bp + new Vector2(btnSize, btnSize), ImGui.ColorConvertFloat4ToU32(border), 6f);
-                
-                ImGui.SetCursorScreenPos(bp + new Vector2(4f, 4f));
-                
-                if (ids.ContainsKey(job))
-                {
-                    var tex = _textureProvider.GetFromGameIcon(new GameIconLookup(ids[job])).GetWrapOrDefault();
-                    if (tex != null)
-                    {
-                        ImGui.Image(tex.Handle, new Vector2(18f * PluginUI.AppScale, 18f * PluginUI.AppScale), Vector2.Zero, Vector2.One, selected ? Vector4.One : new Vector4(1,1,1,0.4f));
-                    }
-                }
-                
-                ImGui.SetCursorScreenPos(bp);
-                if (ImGui.InvisibleButton("job_" + job, new Vector2(btnSize, btnSize)))
-                {
-                    if (selected) _selectedJobs.Remove(job);
-                    else _selectedJobs.Add(job);
-                    PerformSearch();
-                }
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(job);
-                
-                x += btnSize + gap;
-            }
-            ImGui.SetCursorPosY(y + btnSize + 15f * PluginUI.AppScale);
-        }
-
-        private void DrawSearchAndSortBar()
-        {
-            Vector2 p = ImGui.GetCursorScreenPos();
-            float cardHeight = 85f * PluginUI.AppScale;
-            float totalWidth = ImGui.GetContentRegionAvail().X;
-            
-            UIHelper.DrawCard(p, new Vector2(totalWidth, cardHeight), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, new Vector4(0.3f, 0.3f, 0.4f, 0.6f));
-            
-            Vector2 btnPos = p + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale);
-            if (UIHelper.DrawPremiumButton("hideFiltersBtn", btnPos, new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), _showFilters ? "Hide Filters" : "Show Filters", new Vector4(0, 0, 0, 0.3f), new Vector4(0.2f, 0.2f, 0.3f, 0.8f), Theme.Text, Vector4.One))
-            {
+            PopFrame();
+            if (Ui.IconButton("cf_filters", FontAwesomeIcon.Filter, new Vector2(top.X + leftW - bh, top.Y), bh, _showFilters ? "Hide filters" : "Filters", null, _showFilters || FiltersActive))
                 _showFilters = !_showFilters;
-            }
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(totalWidth - 275f * PluginUI.AppScale, 10f * PluginUI.AppScale));
-            ImGui.AlignTextToFramePadding();
-            ImGui.TextColored(Theme.Text, "Sort by:");
-            ImGui.SameLine();
-            
-            string[] sortModes = { "Relevance", "Name", "Level", "iLvl" };
-            ImGui.PushItemWidth(100f * PluginUI.AppScale);
-            if (ImGui.BeginCombo("##sortMode", sortModes[_sortMode]))
-            {
-                for (int i = 0; i < sortModes.Length; i++)
-                {
-                    if (ImGui.Selectable(sortModes[i], _sortMode == i)) _sortMode = i;
-                }
-                ImGui.EndCombo();
-            }
-            ImGui.PopItemWidth();
-            
-            ImGui.SameLine();
-            string[] dirs = { "Ascending", "Descending" };
-            ImGui.PushItemWidth(100f * PluginUI.AppScale);
-            if (ImGui.BeginCombo("##sortDir", dirs[_sortDesc ? 1 : 0]))
-            {
-                if (ImGui.Selectable("Ascending", !_sortDesc)) _sortDesc = false;
-                if (ImGui.Selectable("Descending", _sortDesc)) _sortDesc = true;
-            }
-            ImGui.PopItemWidth();
-            
-            Vector2 sp = p + new Vector2(15f * PluginUI.AppScale, 45f * PluginUI.AppScale);
-            UIHelper.DrawPremiumInputText("##searchBoxItems", sp, new Vector2(totalWidth - 30f * PluginUI.AppScale, 30f * PluginUI.AppScale), ref _searchQuery, 100);
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(0, cardHeight + 5f * PluginUI.AppScale));
-            if (ImGui.IsItemDeactivatedAfterEdit() || ImGui.IsKeyPressed(ImGuiKey.Enter))
-            {
-                PerformSearch();
-            }
+
+            float y = top.Y + bh + S(10);
+            if (_showFilters) y = DrawFilters(new Vector2(top.X, y), leftW) + S(10);
+
+            float bottom = top.Y + avail.Y;
+            float listH = wide ? bottom - y : Math.Max(S(200), (bottom - y) * 0.58f);
+            ImGui.SetCursorScreenPos(new Vector2(top.X, y));
+            if (UIHelper.BeginSmoothChild("cf_results", new Vector2(leftW, listH))) DrawSearchResults(leftW - S(10));
+            ImGui.EndChild();
+
+            var dp = wide ? new Vector2(top.X + leftW + S(12), top.Y) : new Vector2(top.X, y + listH + S(10));
+            ImGui.SetCursorScreenPos(dp);
+            if (UIHelper.BeginSmoothChild("cf_draft", new Vector2(draftW, Math.Max(S(120), bottom - dp.Y)))) DrawDraft(draftW - S(10));
+            ImGui.EndChild();
         }
 
-        private void DrawSearchResults()
-        {
-            if (!_hasSearched) return;
+        private bool FiltersActive => _craftedByJob >= 0 || _collectableOnly || _selectedJobs.Count > 0
+            || _reqLevelMin > 0 || _reqLevelMax > 0 || _iLvlMin > 0 || _iLvlMax > 0 || _rLvlMin > 0 || _rLvlMax > 0;
 
+        /// <summary>Filter panel; returns its bottom edge.</summary>
+        private float DrawFilters(Vector2 p, float w)
+        {
+            var dl = Ui.Dl;
+            dl.ChannelsSplit(2);
+            dl.ChannelsSetCurrent(1);
+            float pad = S(12), left = p.X + pad, right = p.X + w - pad;
+            bool changed = false;
+
+            float y = p.Y + pad;
+            Ui.Caps(dl, new Vector2(left, y), "Crafted by");
+            y += LH + S(4);
+            var at = new Vector2(left, y);
+            if (ChipToggle("cf_cb_any", "Any", _craftedByJob < 0, ref at, left, right)) { _craftedByJob = -1; changed = true; }
+            for (int i = 0; i < 8; i++)
+                if (ChipToggle("cf_cb_" + i, Jobs[i], _craftedByJob == i, ref at, left, right)) { _craftedByJob = _craftedByJob == i ? -1 : i; changed = true; }
+            y = at.Y + ChipH() + S(10);
+
+            // level ranges
+            float fw = S(64), x = left;
+            void Range(string label, string id, ref int min, ref int max)
+            {
+                Ui.Text(dl, new Vector2(x, y + (FrameH - LH) / 2), label, Theme.Text2, 0.9f);
+                x += Ui.TextSize(label, 0.9f).X + S(8);
+                if (IntInput("##" + id + "a", ref min, fw, new Vector2(x, y), 0, 9999)) changed = true;
+                x += fw + S(4);
+                Ui.Text(dl, new Vector2(x, y + (FrameH - LH) / 2), "-", Theme.Text3);
+                x += S(12);
+                if (IntInput("##" + id + "b", ref max, fw, new Vector2(x, y), 0, 9999)) changed = true;
+                x += fw + S(18);
+                if (x + S(200) > right) { x = left; y += FrameH + S(8); }
+            }
+            Range("Level", "cf_lv", ref _reqLevelMin, ref _reqLevelMax);
+            Range("iLvl", "cf_il", ref _iLvlMin, ref _iLvlMax);
+            Range("Recipe lvl", "cf_rl", ref _rLvlMin, ref _rLvlMax);
+            if (x > left) y += FrameH + S(8);
+            if (Check("cf_coll", "Collectables only", ref _collectableOnly, new Vector2(left, y))) changed = true;
+            y += Math.Max(S(18), LH) + S(10);
+
+            Ui.Caps(dl, new Vector2(left, y), "Worn by");
+            y += LH + S(4);
+            at = new Vector2(left, y);
+            foreach (var j in WornBy)
+            {
+                bool on = _selectedJobs.Contains(j);
+                if (ChipToggle("cf_wb_" + j, j, on, ref at, left, right, 0.78f)) { if (on) _selectedJobs.Remove(j); else _selectedJobs.Add(j); changed = true; }
+            }
+            y = at.Y + ChipH(0.78f) + S(10);
+
+            if (FiltersActive && Ui.Button("cf_freset", "Reset filters", new Vector2(left, y), new Vector2(S(140), S(28)), Kind.Ghost, FontAwesomeIcon.Undo))
+            {
+                _craftedByJob = -1; _collectableOnly = false; _selectedJobs.Clear();
+                _reqLevelMin = _reqLevelMax = _iLvlMin = _iLvlMax = _rLvlMin = _rLvlMax = 0;
+                changed = true;
+            }
+            if (FiltersActive) y += S(28) + S(4);
+
+            float bottom = y + pad - S(4);
+            dl.ChannelsSetCurrent(0);
+            Ui.Panel(dl, p, new Vector2(p.X + w, bottom), Theme.Night2.With(0.55f));
+            dl.ChannelsMerge();
+            Advance(p, bottom - p.Y);
+            if (changed) PerformSearch();
+            return bottom;
+        }
+
+        private void DrawSearchResults(float w)
+        {
+            var dl = Ui.Dl;
+            if (!_hasSearched)
+            {
+                var p0 = ImGui.GetCursorScreenPos();
+                Ui.Text(dl, p0 + S(4, 8), "Type an item name, or pick a filter.", Theme.Text3);
+                Ui.Text(dl, p0 + new Vector2(S(4), S(12) + LH), "Recipes you add go to the draft, then to your pipeline.", Theme.Text3, 0.9f);
+                Advance(p0, LH * 2 + S(20));
+                return;
+            }
             if (_searchResults.Count == 0)
             {
-                ImGui.TextColored(Theme.Text3, "Woops, nothing's here. Try adjusting your search or filters.");
+                var p0 = ImGui.GetCursorScreenPos();
+                Ui.Text(dl, p0 + S(4, 8), "Nothing found. Try other words or filters.", Theme.Text3);
+                Advance(p0, LH + S(16));
                 return;
             }
 
-            // Apply sort
-            var results = _searchResults.ToList();
-            if (_sortMode == 1) results.Sort((a, b) => string.Compare(a.Recipe.ItemResult.Value.Name.ToString(), b.Recipe.ItemResult.Value.Name.ToString()));
-            else if (_sortMode == 2) results.Sort((a, b) => a.Recipe.RecipeLevelTable.RowId.CompareTo(b.Recipe.RecipeLevelTable.RowId));
-            else if (_sortMode == 3) results.Sort((a, b) => a.Recipe.ItemResult.Value.LevelItem.RowId.CompareTo(b.Recipe.ItemResult.Value.LevelItem.RowId));
-            
-            if (!_sortDesc && _sortMode != 0) results.Reverse();
+            IEnumerable<Recipe> list = _searchResults;
+            if (_sortMode == 1) list = list.OrderBy(r => r.ItemResult.Value.Name.ToString());
+            else if (_sortMode == 2) list = list.OrderByDescending(r => r.RecipeLevelTable.Value.ClassJobLevel);
+            else if (_sortMode == 3) list = list.OrderByDescending(r => r.ItemResult.Value.LevelItem.RowId);
 
-            UIHelper.BeginSmoothChild("searchResultsScroll2", new Vector2(0, 0), false);
-            
-            foreach (var result in results)
+            float rowH = S(14) + LH * 2;
+            foreach (var r in list)
             {
-                var recipe = result.Recipe;
-                var item = recipe.ItemResult.Value;
-                if (item.RowId == 0) continue;
-                
-                Vector2 p = ImGui.GetCursorScreenPos();
-                float rowHeight = 55f * PluginUI.AppScale;
-                Vector2 rowSize = new Vector2(ImGui.GetContentRegionAvail().X, rowHeight);
-                
-                Vector4 bBorder = Theme.Night1.With(0.8f);
-                if (recipe.RowId != 0) bBorder = new Vector4(0.4f, 0.8f, 0.6f, 0.8f); // #68cfa8 matching
-                
-                UIHelper.DrawCard(p, rowSize, new Vector4(0, 0, 0, 0.3f), 8f * PluginUI.AppScale, bBorder);
-                ImGui.SetCursorScreenPos(p + new Vector2(10f * PluginUI.AppScale, 8f * PluginUI.AppScale));
+                var item = r.ItemResult.Value;
+                var p = ImGui.GetCursorScreenPos();
+                if (!ImGui.IsRectVisible(new Vector2(w, rowH))) { Advance(p, rowH); continue; }
 
-                // Icon
-                if (result.IconTexture != null && result.IconTexture.GetWrapOrDefault() != null)
+                bool added = _justAdded == r.RowId && (DateTime.Now - _justAddedAt).TotalSeconds < 1.2;
+                Ui.Panel(dl, p, p + new Vector2(w, rowH), Theme.Night2.With(0.7f), added ? Theme.Live.With(0.6f) : Theme.CrystalLine, 8f);
+                float ic = rowH - S(14);
+                GameIcon(item.Icon, p + S(7, 7), ic);
+                int step = Math.Max(1, _addQuantities.GetValueOrDefault(r.RowId, 1));
+                float btnW = S(82), right = p.X + w - S(8);
+                float textW = w - ic - S(24) - btnW - StepperW - S(16);
+                var rl = r.RecipeLevelTable.Value;
+                Ui.Text(dl, new Vector2(p.X + ic + S(16), p.Y + S(6)), Fit(item.Name.ToString(), textW), Theme.Text);
+                var sub = $"{JobOf(r)} · Lv {rl.ClassJobLevel}{(rl.Stars > 0 ? " " + new string('*', rl.Stars) : "")} · iLvl {item.LevelItem.RowId}{(item.IsCollectable ? " · Collectable" : "")}";
+                Ui.Text(dl, new Vector2(p.X + ic + S(16), p.Y + S(8) + LH), Fit(sub, textW, 0.85f), Theme.Text3, 0.85f);
+
+                float by = p.Y + (rowH - S(28)) / 2;
+                if (Stepper("cf_rq" + r.RowId, ref step, new Vector2(right - btnW - S(8) - StepperW, by + S(1)))) _addQuantities[r.RowId] = step;
+                if (Ui.Button("cf_add" + r.RowId, added ? "Added" : "Add", new Vector2(right - btnW, by), new Vector2(btnW, S(28)), Kind.Primary, added ? FontAwesomeIcon.Check : FontAwesomeIcon.Plus))
                 {
-                    ImGui.Image(result.IconTexture.GetWrapOrDefault().Handle, new Vector2(38f * PluginUI.AppScale, 38f * PluginUI.AppScale));
+                    AddToDraft(r, step);
+                    _justAdded = r.RowId;
+                    _justAddedAt = DateTime.Now;
                 }
-                else
-                {
-                    ImGui.Dummy(new Vector2(38f * PluginUI.AppScale, 38f * PluginUI.AppScale));
-                }
-
-                ImGui.SameLine();
-                ImGui.SetCursorScreenPos(p + new Vector2(55f * PluginUI.AppScale, 8f * PluginUI.AppScale));
-                
-                ImGui.BeginGroup();
-                ImGui.TextColored(Theme.Text, item.Name.ToString());
-                
-                // Badges
-                ImGui.Dummy(new Vector2(0, 4f * PluginUI.AppScale));
-                ImGui.TextColored(Theme.Text2, $"Lv {item.LevelEquip} iLvl {item.LevelItem.RowId}");
-                ImGui.EndGroup();
-
-                ImGui.SameLine();
-                float rightAlign = rowSize.X - 105f * PluginUI.AppScale;
-                ImGui.SetCursorScreenPos(p + new Vector2(rightAlign - 70f * PluginUI.AppScale, 13f * PluginUI.AppScale));
-                
-                if (!_addQuantities.ContainsKey((int)recipe.RowId)) _addQuantities[(int)recipe.RowId] = 1;
-                int qty = _addQuantities[(int)recipe.RowId];
-                
-                ImGui.PushItemWidth(60f * PluginUI.AppScale);
-                ImGui.InputInt("##qty_" + recipe.RowId, ref qty, 0);
-                ImGui.PopItemWidth();
-                if (qty < 1) qty = 1;
-                _addQuantities[(int)recipe.RowId] = qty;
-
-                ImGui.SameLine();
-                Vector2 btnPos = p + new Vector2(rightAlign, 9f * PluginUI.AppScale);
-                
-                if (UIHelper.DrawPremiumButton("Add##" + recipe.RowId, btnPos, new Vector2(90f * PluginUI.AppScale, 36f * PluginUI.AppScale), "Add", new Vector4(0.28f, 0.5f, 0.69f, 1f), new Vector4(0.4f, 0.8f, 0.66f, 1f), Vector4.One, Vector4.One))
-                {
-                    var existing = _configuration.CraftingDraftPipeline.FirstOrDefault(x => x.RecipeId == recipe.RowId);
-                    if (existing != null) existing.Amount += qty;
-                    else _configuration.CraftingDraftPipeline.Add(new CraftingPipelineItem { RecipeId = recipe.RowId, Amount = qty });
-                    _configuration.Save();
-                }
-                
-                ImGui.SetCursorScreenPos(p + new Vector2(0, rowHeight + 10f * PluginUI.AppScale));
+                Advance(p, rowH + S(6));
             }
-            ImGui.EndChild();
         }
 
-        private void DrawDraftPipeline()
+        private void AddToDraft(Recipe r, int qty)
         {
-            Vector2 p = ImGui.GetCursorScreenPos();
-            Vector2 s = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y);
-            
-            UIHelper.DrawCard(p, s, new Vector4(0, 0, 0, 0.3f), 8f * PluginUI.AppScale, Theme.Night1.With(0.8f));
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 15f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Text, "Draft Pipeline");
-            ImGui.SameLine(s.X - 80f * PluginUI.AppScale);
-            ImGui.TextColored(Theme.Text3, $"{_configuration.CraftingDraftPipeline.Count} items");
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(0, 45f * PluginUI.AppScale));
-            ImGui.Separator();
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 60f * PluginUI.AppScale));
-            Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawPremiumButton("sendPipelineBtn", btnPos, new Vector2(s.X - 30f * PluginUI.AppScale, 40f * PluginUI.AppScale), "Send to Pipeline", Theme.Gold, Theme.Gold, Vector4.One, Vector4.One))
-            {
-                foreach (var draft in _configuration.CraftingDraftPipeline)
-                {
-                    var existing = _configuration.CraftingActivePipeline.FirstOrDefault(x => x.RecipeId == draft.RecipeId);
-                    if (existing != null) existing.Amount += draft.Amount;
-                    else _configuration.CraftingActivePipeline.Add(new CraftingPipelineItem { RecipeId = draft.RecipeId, Amount = draft.Amount });
-                }
-                _configuration.CraftingDraftPipeline.Clear();
-                _cachedRollup = null;
-                _configuration.Save();
-            }
-            
-            ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 115f * PluginUI.AppScale));
-            if (_configuration.CraftingDraftPipeline.Count == 0)
-            {
-                ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
-                ImGui.TextColored(Theme.Text3, "Your draft is empty.\nSearch for recipes and add\nthem here before sending to pipeline.");
-            }
+            var item = r.ItemResult.Value;
+            var same = _draft.FirstOrDefault(d => Int(d["item"], "id") == (int)item.RowId);
+            if (same != null) same["quantity"] = Int(same, "quantity", 1) + qty;
             else
             {
-                ImGui.BeginChild("draftScroll", new Vector2(s.X - 30f * PluginUI.AppScale, s.Y - 130f * PluginUI.AppScale), false);
-                var toRemove = new List<CraftingPipelineItem>();
-                var sheet = _dataManager.GetExcelSheet<Recipe>();
-                
-                foreach (var item in _configuration.CraftingDraftPipeline)
+                var rl = r.RecipeLevelTable.Value;
+                _draft.Add(new JObject
                 {
-                    var recipe = sheet?.GetRow(item.RecipeId);
-                    if (recipe == null || recipe.Value.RowId == 0) continue;
-                    
-                    Vector2 dp = ImGui.GetCursorScreenPos();
-                    UIHelper.DrawCard(dp, new Vector2(ImGui.GetContentRegionAvail().X, 40f * PluginUI.AppScale), Theme.Night1.With(0.5f), 4f * PluginUI.AppScale, Theme.Night3.With(0.5f));
-                    
-                    ImGui.SetCursorScreenPos(dp + new Vector2(10f * PluginUI.AppScale, 12f * PluginUI.AppScale));
-                    ImGui.TextColored(Theme.Text, recipe.Value.ItemResult.Value.Name.ToString());
-                    
-                    ImGui.SameLine(ImGui.GetContentRegionAvail().X - 80f * PluginUI.AppScale);
-                    ImGui.TextColored(Theme.Crystal, $"x{item.Amount}");
-                    
-                    ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30f * PluginUI.AppScale);
-                    Vector2 xBtnPos = ImGui.GetCursorScreenPos();
-                    if (UIHelper.DrawPremiumButton("del_" + item.RecipeId, xBtnPos, new Vector2(25f * PluginUI.AppScale, 20f * PluginUI.AppScale), "X", Theme.Gold, Theme.Gold, Vector4.One, Vector4.One))
+                    ["item"] = new JObject
                     {
-                        toRemove.Add(item);
-                    }
-                    ImGui.SetCursorScreenPos(dp + new Vector2(0, 45f * PluginUI.AppScale));
-                }
-                
-                foreach(var r in toRemove) _configuration.CraftingDraftPipeline.Remove(r);
-                if (toRemove.Count > 0) _configuration.Save();
-                
-                ImGui.EndChild();
+                        ["id"] = item.RowId, ["name"] = item.Name.ToString(), ["icon"] = IconPath(item.Icon), ["recipeId"] = r.RowId,
+                        ["job"] = JobOf(r), ["level"] = (int)rl.ClassJobLevel, ["stars"] = (int)rl.Stars, ["ilvl"] = item.LevelItem.RowId,
+                        ["equipLevel"] = (int)item.LevelEquip, ["isCollectable"] = item.IsCollectable,
+                    },
+                    ["quantity"] = qty,
+                });
             }
+            WriteDraft();
         }
 
+        private void DrawDraft(float w)
+        {
+            var dl = Ui.Dl;
+            var p = ImGui.GetCursorScreenPos();
+            Ui.Caps(dl, p + S(2, 2), "Draft");
+            var cnt = $"{_draft.Count} {(_draft.Count == 1 ? "craft" : "crafts")}";
+            Ui.Text(dl, new Vector2(p.X + w - Ui.TextSize(cnt, 0.85f).X, p.Y + S(2)), cnt, Theme.Text3, 0.85f);
+            float y = p.Y + LH + S(10);
+
+            float sendH = S(36);
+            bool canSend = _draft.Count > 0;
+            if (canSend && Ui.Button("cf_send", "Send to pipeline", new Vector2(p.X, y), new Vector2(w, sendH), Kind.Gold, FontAwesomeIcon.PaperPlane))
+            {
+                var recipes = _dataManager.GetExcelSheet<Recipe>();
+                InitRecipeCache();
+                foreach (var d in _draft)
+                {
+                    uint rid = (uint)Math.Max(0, Int(d["item"], "recipeId"));
+                    var r = recipes.GetRowOrDefault(rid);
+                    if (!r.HasValue || r.Value.ItemResult.RowId != (uint)Int(d["item"], "id"))
+                        rid = _recipeIdByResult!.GetValueOrDefault((uint)Int(d["item"], "id"));
+                    AddTarget(rid, Math.Max(1, Int(d, "quantity", 1)), write: false);
+                }
+                WritePipeline(rebuild: true);
+                _draft.Clear();
+                WriteDraft();
+                _view = 1;
+                _sender.SetState(SecView, Views[1]);
+            }
+            if (canSend) y += sendH + S(10);
+
+            if (_draft.Count == 0)
+            {
+                Ui.Text(dl, new Vector2(p.X, y), "Your draft is empty.", Theme.Text3);
+                Ui.Text(dl, new Vector2(p.X, y + LH + S(2)), "Add recipes from the search.", Theme.Text3, 0.9f);
+                Advance(p, y - p.Y + LH * 2 + S(8));
+                return;
+            }
+
+            float rowH = S(10) + Math.Max(S(28), LH * 2 + S(2));
+            JObject? remove = null;
+            bool dirty = false;
+            var items = _dataManager.GetExcelSheet<Item>();
+            foreach (var d in _draft)
+            {
+                var it = d["item"];
+                int id = Int(it, "id");
+                var row = items.GetRowOrDefault((uint)id);
+                var rp = new Vector2(p.X, y);
+                Ui.Panel(dl, rp, rp + new Vector2(w, rowH), Theme.Night2.With(0.6f), Theme.CrystalLine, 6f);
+                float ic = rowH - S(12);
+                if (row.HasValue) GameIcon(row.Value.Icon, rp + S(6, 6), ic);
+                float tx = rp.X + ic + S(14), tw = w - ic - S(20) - StepperW - S(34);
+                Ui.Text(dl, new Vector2(tx, rp.Y + S(5)), Fit(Str(it, "name"), tw), Theme.Text);
+                Ui.Text(dl, new Vector2(tx, rp.Y + S(7) + LH), $"{Str(it, "job")} · Lv {Int(it, "level")}", Theme.Text3, 0.85f);
+                int q = Math.Max(1, Int(d, "quantity", 1));
+                float by = rp.Y + (rowH - S(26)) / 2;
+                if (Stepper("cf_dq" + id, ref q, new Vector2(rp.X + w - StepperW - S(34), by))) { d["quantity"] = q; dirty = true; }
+                if (Ui.IconButton("cf_drm" + id, FontAwesomeIcon.Times, new Vector2(rp.X + w - S(30), by), S(26), "Remove", Theme.Bad)) remove = d;
+                y += rowH + S(6);
+            }
+            if (remove != null) { _draft.Remove(remove); dirty = true; }
+            if (dirty) WriteDraft();
+            Advance(p, y - p.Y);
+        }
 
         private void PerformSearch()
         {
-            if (string.IsNullOrWhiteSpace(_searchQuery) && !_craftableOnly && !_collectableOnly)
-            {
-                _searchResults.Clear();
-                _hasSearched = false;
-                return;
-            }
-
+            _searchResults.Clear();
+            if (string.IsNullOrWhiteSpace(_searchQuery) && !FiltersActive) { _hasSearched = false; return; }
             var sheet = _dataManager.GetExcelSheet<Recipe>();
-            if (sheet == null) return;
-            
-            int reqLvlMinParsed = string.IsNullOrWhiteSpace(_reqLevelMin) ? 0 : (int.TryParse(_reqLevelMin, out int v1) ? v1 : 0);
-            int reqLvlMaxParsed = string.IsNullOrWhiteSpace(_reqLevelMax) ? int.MaxValue : (int.TryParse(_reqLevelMax, out int v2) ? v2 : int.MaxValue);
-            int iLvlMinParsed = string.IsNullOrWhiteSpace(_iLvlMin) ? 0 : (int.TryParse(_iLvlMin, out int v3) ? v3 : 0);
-            int iLvlMaxParsed = string.IsNullOrWhiteSpace(_iLvlMax) ? int.MaxValue : (int.TryParse(_iLvlMax, out int v4) ? v4 : int.MaxValue);
-            int rLvlMinParsed = string.IsNullOrWhiteSpace(_rLvlMin) ? 0 : (int.TryParse(_rLvlMin, out int v5) ? v5 : 0);
-            int rLvlMaxParsed = string.IsNullOrWhiteSpace(_rLvlMax) ? int.MaxValue : (int.TryParse(_rLvlMax, out int v6) ? v6 : int.MaxValue);
+            string q = _searchQuery.Trim().ToLowerInvariant();
+            int max(int v) => v <= 0 ? int.MaxValue : v;
 
-            string queryLower = _searchQuery.ToLowerInvariant();
-            
-            var raw = sheet.Where(r => 
+            foreach (var r in sheet)
             {
                 var item = r.ItemResult.Value;
-                if (item.RowId == 0) return false;
-
-                if (!string.IsNullOrWhiteSpace(_searchQuery) && !item.Name.ToString().ToLowerInvariant().Contains(queryLower)) return false;
-                
-                var rLvl = r.RecipeLevelTable.Value;
-                if (rLvl.RowId == 0) return false;
-
-                if (rLvl.ClassJobLevel < reqLvlMinParsed || rLvl.ClassJobLevel > reqLvlMaxParsed) return false;
-                if (r.RecipeLevelTable.RowId < rLvlMinParsed || r.RecipeLevelTable.RowId > rLvlMaxParsed) return false;
-                if (item.LevelItem.RowId < iLvlMinParsed || item.LevelItem.RowId > iLvlMaxParsed) return false;
-                
-                if (_craftedByJob != -1 && r.CraftType.RowId != _craftedByJob) return false;
-                
-                if (_collectableOnly && r.ItemResult.Value.IsCollectable == false) return false;
-
-                if (_selectedJobs.Count > 0)
-                {
-                    var cjc = item.ClassJobCategory.Value;
-                    if (cjc.RowId == 0) return false;
-                    
-                    bool match = false;
-                    foreach (var j in _selectedJobs)
-                    {
-                        var prop = cjc.GetType().GetProperty(j);
-                        if (prop != null && prop.PropertyType == typeof(bool))
-                        {
-                            if ((bool)prop.GetValue(cjc)) { match = true; break; }
-                        }
-                        else if (prop != null && prop.PropertyType == typeof(byte))
-                        {
-                            if ((byte)prop.GetValue(cjc) > 0) { match = true; break; }
-                        }
-                    }
-                    if (!match) return false;
-                }
-
-                return true;
-            }).Take(50).ToList();
-
-            _searchResults.Clear();
-            foreach (var r in raw)
-            {
-                var wrap = new SearchResultWrapper { Recipe = r };
-                if (r.ItemResult.Value.Icon != 0)
-                {
-                    wrap.IconTexture = _textureProvider.GetFromGameIcon(new GameIconLookup(r.ItemResult.Value.Icon));
-                }
-                if (r.CraftType.RowId >= 0 && r.CraftType.RowId <= 7)
-                {
-                    wrap.JobIconTexture = _textureProvider.GetFromGameIcon(new GameIconLookup(_jobIconIds[r.CraftType.RowId + 1]));
-                }
-                _searchResults.Add(wrap);
+                if (r.ItemResult.RowId == 0 || r.RecipeLevelTable.RowId == 0) continue;
+                var name = item.Name.ToString();
+                if (name.Length == 0) continue;
+                if (q.Length > 0 && !name.ToLowerInvariant().Contains(q)) continue;
+                var rl = r.RecipeLevelTable.Value;
+                if (rl.ClassJobLevel < _reqLevelMin || rl.ClassJobLevel > max(_reqLevelMax)) continue;
+                if (r.RecipeLevelTable.RowId < _rLvlMin || r.RecipeLevelTable.RowId > max(_rLvlMax)) continue;
+                if (item.LevelItem.RowId < _iLvlMin || item.LevelItem.RowId > max(_iLvlMax)) continue;
+                if (_craftedByJob >= 0 && r.CraftType.RowId != _craftedByJob) continue;
+                if (_collectableOnly && !item.IsCollectable) continue;
+                if (_selectedJobs.Count > 0 && !WornByMatch(item)) continue;
+                _searchResults.Add(r);
+                if (_searchResults.Count >= 60) break;
             }
-
+            // relevance: names that start with the query first
+            if (q.Length > 0)
+            {
+                var sorted = _searchResults.OrderBy(r => r.ItemResult.Value.Name.ToString().ToLowerInvariant().StartsWith(q) ? 0 : 1).ToList();
+                _searchResults.Clear();
+                _searchResults.AddRange(sorted);
+            }
             _hasSearched = true;
+        }
+
+        private bool WornByMatch(Item item)
+        {
+            var cjc = item.ClassJobCategory.Value;
+            if (item.ClassJobCategory.RowId == 0) return false;
+            foreach (var j in _selectedJobs)
+            {
+                var prop = cjc.GetType().GetProperty(j);
+                var v = prop?.GetValue(cjc);
+                if (v is bool b && b) return true;
+                if (v is byte by && by > 0) return true;
+            }
+            return false;
         }
     }
 }

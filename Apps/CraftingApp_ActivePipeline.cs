@@ -1,982 +1,619 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
-using Dalamud.Interface.Textures;
-using Dalamud.Interface.Textures.TextureWraps;
 using Lumina.Excel.Sheets;
+using Newtonsoft.Json.Linq;
+using XIVHubCompanion.Tablet;
 
 namespace XIVHubCompanion.Apps
 {
     public partial class CraftingApp
     {
-        private class MaterialRollup
+        /// <summary>One line of the pipeline, read from crafting.pipeline_v2 items plus live bag counts.</summary>
+        private class Mat
         {
-            public uint ItemId { get; set; }
-            public int Amount { get; set; }
-            public string Category { get; set; }
-            public string Zone { get; set; }
-            public int Tier { get; set; }
-            public string SpawnTimes { get; set; }
-            public int InventoryCount { get; set; }
-            public uint IconId { get; set; }
-            public ISharedImmediateTexture IconTexture { get; set; }
-            public string Name { get; set; }
-            public int Stars { get; set; }
-            public uint AetheryteId { get; set; }
-            public bool IsReadyToCraft { get; set; }
-            public int EffectiveAmount { get; set; }
+            public uint Id; public string Name = ""; public uint Icon; public string Cat = ""; public int Tier;
+            public int Req, Eff, Inv, Completed, Have, Stars, Yield = 1, Price;
+            public string Zone = "", Times = ""; public string? Method; public uint Aetheryte; public bool Ready;
+            public List<(uint Id, int Amt)> Ings = new();
+            public bool Crafted => Cat == "precraft" || Cat == "final";
+            public bool Done => Have >= Eff;
         }
 
-        private List<MaterialRollup> _cachedRollup = null;
-        private Dictionary<string, bool> _categoryCollapsedState = new();
-        private Dictionary<string, bool> _categoryDoneState = new();
+        private List<Mat>? _rollup;
+        private DateTime _countsAt, _completedWriteAt;
+        private readonly Dictionary<string, bool> _collapsed = new();
+        private readonly Dictionary<uint, uint> _aetheryteOf = new();
+        private HashSet<uint>? _vendorItems;
+        private Dictionary<uint, uint>? _recipeIdByResult;
+        private DateTime _confirmClearAt;
 
-        private Dictionary<uint, int> _priceCache = new();
-        private Dictionary<uint, DateTime> _priceCacheTime = new();
-        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient { DefaultRequestHeaders = { { "User-Agent", HubClient.UserAgent } } };
-        private bool _isFetchingPrices = false;
-        
-        private async void FetchPrices(List<uint> itemIds)
+        private readonly ConcurrentDictionary<uint, int> _priceCache = new();
+        private static readonly System.Net.Http.HttpClient _httpClient = new() { DefaultRequestHeaders = { { "User-Agent", HubClient.UserAgent } } };
+        private volatile bool _isFetchingPrices, _pricesFresh;
+        private string? _scopeEdit;
+
+        private static readonly (string Cat, string Title, Vector4 Color)[] Sections =
         {
-            if (_isFetchingPrices || itemIds.Count == 0) return;
-            
-            var toFetch = itemIds.Where(id => !_priceCacheTime.ContainsKey(id) || (DateTime.Now - _priceCacheTime[id]).TotalMinutes > 30).Distinct().ToList();
-            if (toFetch.Count == 0) return;
+            ("crystals", "Crystals", Theme.Crystal), ("timed", "Timed nodes", Theme.Live), ("gathering", "Gathering", Theme.CrystalDeep),
+            ("tomes", "Vendors, tomes, scrips", Theme.Warn), ("drops", "Other materials", Theme.Text2),
+            ("precraft", "Pre-crafts", Theme.Violet), ("final", "Final crafts", Theme.Gold),
+        };
 
-            _isFetchingPrices = true;
-            try
-            {
-                string worldName = "Europe"; 
-                for (int i = 0; i < toFetch.Count; i += 5)
-                {
-                    var chunk = toFetch.Skip(i).Take(5).ToList();
-                    string idsStr = string.Join(",", chunk);
-                    string url = $"https://universalis.app/api/v2/{worldName}/{idsStr}";
-                    
-                    var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
-
-                    var response = await _httpClient.SendAsync(request);
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string json = await response.Content.ReadAsStringAsync();
-                        var jDoc = System.Text.Json.JsonDocument.Parse(json);
-                        
-                        if (jDoc.RootElement.TryGetProperty("items", out var itemsElement))
-                        {
-                            foreach (var prop in itemsElement.EnumerateObject())
-                            {
-                                if (uint.TryParse(prop.Name, out uint id))
-                                {
-                                    if (prop.Value.TryGetProperty("minPrice", out var minPriceElement) && minPriceElement.ValueKind == System.Text.Json.JsonValueKind.Number)
-                                    {
-                                        _priceCache[id] = minPriceElement.GetInt32();
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (jDoc.RootElement.TryGetProperty("minPrice", out var singleMinPrice) && singleMinPrice.ValueKind == System.Text.Json.JsonValueKind.Number)
-                            {
-                                _priceCache[chunk[0]] = singleMinPrice.GetInt32();
-                            }
-                        }
-                        
-                        foreach (var id in chunk)
-                        {
-                            if (!_priceCache.ContainsKey(id)) _priceCache[id] = 0;
-                            _priceCacheTime[id] = DateTime.Now;
-                        }
-                    }
-                    else
-                    {
-                        string err = await response.Content.ReadAsStringAsync();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Debug($"[Aetherhold] Universalis prices failed: {ex.Message}");
-            }
-            finally
-            {
-                _isFetchingPrices = false;
-            }
-        }
-
-        private void DrawActivePipelineTab()
+        // =============================================================================================================
+        // View
+        // =============================================================================================================
+        private void DrawPipelineView()
         {
-            float width = ImGui.GetContentRegionAvail().X;
-            float leftPanelWidth = 350f * PluginUI.AppScale;
-            float rightPanelWidth = width - leftPanelWidth - 20f * PluginUI.AppScale;
-
-            UIHelper.BeginSmoothChild("activeTargets", new Vector2(leftPanelWidth, 0), true);
-            DrawActiveTargets();
-            ImGui.EndChild();
-
-            ImGui.SameLine();
-
-            UIHelper.BeginSmoothChild("materialRollup", new Vector2(rightPanelWidth, 0), true);
-            DrawMaterialRollup();
-            ImGui.EndChild();
-            
-            if (_showPipelineCompletedPopup) ImGui.OpenPopup("Pipeline Completed");
-            if (ImGui.BeginPopupModal("Pipeline Completed", ref _showPipelineCompletedPopup, ImGuiWindowFlags.AlwaysAutoResize))
+            var dl = Ui.Dl;
+            var top = ImGui.GetCursorScreenPos();
+            var avail = ImGui.GetContentRegionAvail();
+            if (_targets.Count == 0)
             {
-                ImGui.TextColored(Theme.Live, "You have finished crafting all items in the pipeline!");
-                ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-                ImGui.Text("Would you like to clear the pipeline?");
-                ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-                
-                if (UIHelper.DrawPremiumWarningButton("btn_clear_pipe_yes", ImGui.GetCursorScreenPos(), new Vector2(150f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Yes, Clear Pipeline"))
-                {
-                    _configuration.CraftingActivePipeline.Clear();
-                    _configuration.Save();
-                    _cachedRollup = null;
-                    _showPipelineCompletedPopup = false;
-                    ImGui.CloseCurrentPopup();
-                }
-                ImGui.SameLine();
-                if (UIHelper.DrawPremiumButton("btn_clear_pipe_no", ImGui.GetCursorScreenPos(), new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "No, Keep It", Theme.Night2, Theme.Night3, Theme.Text2, Vector4.One))
-                {
-                    _showPipelineCompletedPopup = false;
-                    ImGui.CloseCurrentPopup();
-                }
-                ImGui.EndPopup();
-            }
-        }
-
-        private void DrawActiveTargets()
-        {
-            ImGui.TextColored(new Vector4(0.8f, 0.7f, 0.2f, 1f), "ACTIVE TARGETS");
-            ImGui.Separator();
-            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
-
-            if (_configuration.CraftingActivePipeline.Count == 0)
-            {
-                ImGui.TextColored(Theme.Text3, "No active targets.");
+                Ui.Panel(dl, top, top + new Vector2(avail.X, S(120)), Theme.Night2.With(0.6f));
+                Ui.Text(dl, top + S(18, 18), "Your pipeline is empty.", Theme.Text);
+                Ui.Text(dl, top + new Vector2(S(18), S(24) + LH), "Add recipes and send them here: you get every material, where to find it and what it costs.", Theme.Text3, 0.9f);
+                if (Ui.Button("cf_goadd", "Add recipes", top + new Vector2(S(18), S(70)), new Vector2(S(150), S(32)), Kind.Primary, FontAwesomeIcon.Search)) { _view = 0; _sender.SetState(SecView, Views[0]); }
+                Advance(top, S(120));
                 return;
             }
 
-            bool pipelineChanged = false;
+            if (_rollup == null) BuildRollup();
+            if (_pricesFresh) ApplyPrices();
+            RefreshCounts();
+            var mats = _rollup!;
 
-            ImGui.BeginChild("targetList", new Vector2(0, ImGui.GetContentRegionAvail().Y - 60f * PluginUI.AppScale), false);
-            for (int i = 0; i < _configuration.CraftingActivePipeline.Count; i++)
+            // ---- summary: cost, value, profit, market -----------------------------------------------------------
+            float sumH = S(16) + LH * 2;
+            Ui.Panel(dl, top, top + new Vector2(avail.X, sumH), Theme.Night2.With(0.7f), Theme.GoldLine);
+            long cost = mats.Where(m => !m.Crafted).Sum(m => (long)PriceOf(m) * m.Req);
+            long value = _targets.Sum(t => (long)_priceCache.GetValueOrDefault((uint)Int(t, "itemId")) * Int(t, "quantity"));
+            float x = top.X + S(16);
+            void Stat(string label, long v, Vector4 col)
             {
-                var target = _configuration.CraftingActivePipeline[i];
-                var recipe = _dataManager.GetExcelSheet<Recipe>()?.GetRow(target.RecipeId);
-                if (recipe != null && recipe.Value.RowId != 0)
-                {
-                    var item = recipe.Value.ItemResult.Value;
-                    
-                    Vector2 p = ImGui.GetCursorScreenPos();
-                    float rowHeight = 45f * PluginUI.AppScale;
-                    Vector2 rowSize = new Vector2(ImGui.GetContentRegionAvail().X, rowHeight);
-                    
-                    UIHelper.DrawCard(p, rowSize, new Vector4(0.12f, 0.13f, 0.15f, 0.8f), 8f * PluginUI.AppScale, new Vector4(0.3f, 0.4f, 0.6f, 0.5f));
-                    ImGui.SetCursorScreenPos(p + new Vector2(10f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-
-                    var tex = _textureProvider.GetFromGameIcon(new GameIconLookup(item.Icon));
-                    if (tex != null && tex.GetWrapOrDefault() != null)
-                    {
-                        ImGui.Image(tex.GetWrapOrDefault().Handle, new Vector2(32f * PluginUI.AppScale, 32f * PluginUI.AppScale));
-                    }
-                    else
-                    {
-                        ImGui.Dummy(new Vector2(32f * PluginUI.AppScale, 32f * PluginUI.AppScale));
-                    }
-
-                    ImGui.SameLine();
-                    ImGui.SetCursorScreenPos(p + new Vector2(50f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-                    
-                    ImGui.BeginGroup();
-                    ImGui.TextColored(Theme.Text, item.Name.ToString());
-                    if (recipe.Value.CraftType.RowId >= 0 && recipe.Value.CraftType.RowId <= 7)
-                    {
-                        ImGui.TextColored(Theme.Crystal, _jobAbbreviations[recipe.Value.CraftType.RowId + 1]);
-                    }
-                    ImGui.EndGroup();
-                    
-                    ImGui.SameLine();
-                    float rightAlign = rowSize.X - 85f * PluginUI.AppScale;
-                    ImGui.SetCursorScreenPos(p + new Vector2(rightAlign, 10f * PluginUI.AppScale));
-                    
-                    int amt = target.Amount;
-                    ImGui.SetNextItemWidth(45f * PluginUI.AppScale);
-                    if (ImGui.InputInt("##at_" + target.RecipeId, ref amt, 0))
-                    {
-                        if (amt <= 0)
-                        {
-                            _configuration.CraftingActivePipeline.RemoveAt(i);
-                            i--;
-                        }
-                        else target.Amount = amt;
-                        _configuration.Save();
-                        pipelineChanged = true;
-                    }
-                    ImGui.SameLine();
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawPremiumButton("##del_" + target.RecipeId, ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", Theme.Night2, Theme.Gold, Vector4.One, Vector4.One))
-                    {
-                        _configuration.CraftingActivePipeline.RemoveAt(i);
-                        i--;
-                        _configuration.Save();
-                        pipelineChanged = true;
-                    }
-                    ImGui.PopFont();
-
-                    ImGui.SetCursorScreenPos(p + new Vector2(0, rowHeight + 5f * PluginUI.AppScale));
-                }
+                Ui.Caps(dl, new Vector2(x, top.Y + S(7)), label, Theme.Text3, 0.72f);
+                Ui.Text(dl, new Vector2(x, top.Y + S(9) + LH), v == 0 ? "-" : $"{v:N0} g", col);
+                x += Math.Max(S(110), Ui.TextSize($"{v:N0} g").X + S(28));
             }
-            ImGui.EndChild();
+            Stat("Est. cost", cost, Theme.Bad);
+            Stat("Est. value", value, Theme.Gold);
+            Stat("Profit", value == 0 || cost == 0 ? 0 : value - cost, value - cost >= 0 ? Theme.Live : Theme.Bad);
 
-            if (pipelineChanged) _cachedRollup = null;
-
-            if (UIHelper.DrawPremiumButton("clearPipe", Vector2.Zero, new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), "Clear Pipeline", Theme.Night3, Theme.Night3, Vector4.One, Vector4.One))
+            float pbW = S(112), scW = S(120), by = top.Y + (sumH - FrameH) / 2;
+            float pbX = top.X + avail.X - pbW - S(12);
+            if (pbX - scW - S(8) > x)
             {
-                _configuration.CraftingActivePipeline.Clear();
-                _configuration.Save();
-                _cachedRollup = null;
+                _scopeEdit ??= (_sender.GetState(SecScope) as JValue)?.Value as string ?? "";
+                if (Input("##cf_scope", ref _scopeEdit, "Europe", scW, new Vector2(pbX - scW - S(8), by))) { }
+                if (ImGui.IsItemDeactivatedAfterEdit()) _sender.SetState(SecScope, _scopeEdit.Trim());
+                Ui.Tooltip("Market for prices: a world, data center or region (shared with the website)");
             }
-        }
+            if (Ui.Button("cf_prices", _isFetchingPrices ? "Fetching..." : "Prices", new Vector2(pbX, by), new Vector2(pbW, FrameH), Kind.Primary, FontAwesomeIcon.Coins) && !_isFetchingPrices)
+                FetchPrices(mats.Select(m => m.Id).Concat(_targets.Select(t => (uint)Int(t, "itemId"))).Distinct().ToList());
+            float y = top.Y + sumH + S(10);
 
-        private bool _showPipelineCompletedPopup = false;
-        private bool _wasPipelineCompleted = false;
-
-        private void DrawMaterialRollup()
-        {
-            if (_cachedRollup == null)
+            // ---- all targets crafted --------------------------------------------------------------------------------
+            var finals = mats.Where(m => m.Cat == "final").ToList();
+            if (finals.Count > 0 && finals.All(m => m.Inv >= m.Req))
             {
-                CalculateRollup();
+                float bh = S(44);
+                var bp = new Vector2(top.X, y);
+                Ui.Panel(dl, bp, bp + new Vector2(avail.X, bh), Theme.Live.With(0.1f), Theme.Live.With(0.5f));
+                Ui.Icon(dl, bp + new Vector2(S(14), (bh - LH) / 2), FontAwesomeIcon.CheckCircle, Theme.Live);
+                Ui.Text(dl, bp + new Vector2(S(40), (bh - LH) / 2), "Every target is crafted.", Theme.Text);
+                if (Ui.Button("cf_doneclear", "Clear pipeline", bp + new Vector2(avail.X - S(160), (bh - S(30)) / 2), new Vector2(S(148), S(30)), Kind.Gold, FontAwesomeIcon.Broom))
+                    ClearPipeline();
+                y += bh + S(10);
             }
 
-            if (_cachedRollup == null || _cachedRollup.Count == 0) return;
-
-            // Pipeline Completion Check
-            bool allTargetsDone = true;
-            foreach (var target in _configuration.CraftingActivePipeline)
+            float bottom = top.Y + avail.Y;
+            bool wide = avail.X >= S(820);
+            if (wide)
             {
-                int inv = GetTotalInventoryItemCount(target.ItemId);
-                if (inv < target.Amount) { allTargetsDone = false; break; }
-            }
-
-            if (allTargetsDone && !_wasPipelineCompleted)
-            {
-                _wasPipelineCompleted = true;
-                _showPipelineCompletedPopup = true;
-            }
-            var recipeSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Recipe>();
-            
-            // 1. Reset EffectiveAmount
-            foreach (var mat in _cachedRollup)
-            {
-                mat.InventoryCount = GetTotalInventoryItemCount(mat.ItemId);
-                mat.EffectiveAmount = 0;
-            }
-
-            // 2. Add base requirements from Pipeline targets
-            foreach (var target in _configuration.CraftingActivePipeline)
-            {
-                var mat = _cachedRollup.FirstOrDefault(x => x.ItemId == target.ItemId && x.Category == "Final");
-                if (mat != null) mat.EffectiveAmount += target.Amount;
-            }
-
-            // 3. Process top-down
-            var sortedMats = _cachedRollup.Where(x => x.Category == "Final" || x.Category == "Pre-craft")
-                                          .OrderByDescending(x => x.Category == "Final" ? 999 : x.Tier)
-                                          .ToList();
-
-            foreach (var mat in sortedMats)
-            {
-                int amountToCraft = Math.Max(0, mat.EffectiveAmount - mat.InventoryCount);
-                if (amountToCraft > 0 && recipeSheet != null)
-                {
-                    if (_recipeIdByResult.TryGetValue(mat.ItemId, out var recId) && recId != 0)
-                    {
-                        var recipe = recipeSheet.GetRowOrDefault(recId);
-                        if (recipe.HasValue)
-                        {
-                            int craftsNeeded = (int)Math.Ceiling((double)amountToCraft / (recipe.Value.AmountResult > 0 ? recipe.Value.AmountResult : 1));
-                            for (int j = 0; j < recipe.Value.Ingredient.Count; j++)
-                            {
-                                uint ingId = recipe.Value.Ingredient[j].RowId;
-                                int amt = recipe.Value.AmountIngredient[j];
-                                if (ingId != 0 && ingId != uint.MaxValue && amt > 0)
-                                {
-                                    var ingMat = _cachedRollup.FirstOrDefault(x => x.ItemId == ingId);
-                                    if (ingMat != null) ingMat.EffectiveAmount += amt * craftsNeeded;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 4. Update IsReadyToCraft for Pre-crafts and Finals based on effective needed
-            foreach (var mat in sortedMats)
-            {
-                if (mat.InventoryCount >= mat.EffectiveAmount)
-                {
-                    mat.IsReadyToCraft = false; // Already done
-                }
-                else
-                {
-                    bool ready = true;
-                    if (_recipeIdByResult.TryGetValue(mat.ItemId, out var recId) && recId != 0 && recipeSheet != null)
-                    {
-                        var recipe = recipeSheet.GetRowOrDefault(recId);
-                        if (recipe.HasValue)
-                        {
-                            int amountToCraft = mat.EffectiveAmount - mat.InventoryCount;
-                            int craftsNeeded = (int)Math.Ceiling((double)amountToCraft / (recipe.Value.AmountResult > 0 ? recipe.Value.AmountResult : 1));
-                            
-                            for (int j = 0; j < recipe.Value.Ingredient.Count; j++)
-                            {
-                                uint ingId = recipe.Value.Ingredient[j].RowId;
-                                int amt = recipe.Value.AmountIngredient[j];
-                                if (ingId != 0 && ingId != uint.MaxValue && amt > 0)
-                                {
-                                    if (GetTotalInventoryItemCount(ingId) < (amt * craftsNeeded))
-                                    {
-                                        ready = false;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    mat.IsReadyToCraft = ready;
-                }
-            }
-
-            long totalCost = 0;
-            long totalValue = 0;
-            foreach(var target in _configuration.CraftingActivePipeline)
-            {
-                if (_priceCache.TryGetValue(target.ItemId, out int targetPrice))
-                {
-                    totalValue += (long)targetPrice * target.Amount;
-                }
-            }
-            
-            foreach(var item in _cachedRollup)
-            {
-                if ((item.Category == "Gathering" || item.Category == "Timed Node" || item.Category == "Crystals" || item.Category == "Other") && _priceCache.TryGetValue(item.ItemId, out int price))
-                {
-                    totalCost += (long)price * item.Amount;
-                }
-            }
-            long profit = totalValue - totalCost;
-
-            ImGui.BeginGroup();
-            
-            // Draw Est Cost / Value / Profit badges
-            Vector2 p = ImGui.GetCursorScreenPos();
-            float badgeHeight = 44f * PluginUI.AppScale;
-            float totalWidth = ImGui.GetContentRegionAvail().X;
-            var drawList = ImGui.GetWindowDrawList();
-            
-            // Sleek premium background
-            drawList.AddRectFilled(p, p + new Vector2(totalWidth, badgeHeight), UIHelper.Vec4ToU32(new Vector4(0.09f, 0.11f, 0.15f, 0.9f)), 6f * PluginUI.AppScale);
-            drawList.AddRect(p, p + new Vector2(totalWidth, badgeHeight), UIHelper.Vec4ToU32(new Vector4(0.2f, 0.35f, 0.5f, 0.4f)), 6f * PluginUI.AppScale, 0, 1.5f);
-            
-            // Accent gradient bar on the left
-            drawList.AddRectFilled(p, p + new Vector2(5f * PluginUI.AppScale, badgeHeight), UIHelper.Vec4ToU32(Theme.Crystal), 6f * PluginUI.AppScale, ImDrawFlags.RoundCornersLeft);
-            
-            // Subtle separating lines
-            drawList.AddLine(p + new Vector2(130f * PluginUI.AppScale, 8f * PluginUI.AppScale), p + new Vector2(130f * PluginUI.AppScale, badgeHeight - 8f * PluginUI.AppScale), UIHelper.Vec4ToU32(new Vector4(1f, 1f, 1f, 0.1f)), 1f);
-            drawList.AddLine(p + new Vector2(260f * PluginUI.AppScale, 8f * PluginUI.AppScale), p + new Vector2(260f * PluginUI.AppScale, badgeHeight - 8f * PluginUI.AppScale), UIHelper.Vec4ToU32(new Vector4(1f, 1f, 1f, 0.1f)), 1f);
-
-            // Cost Segment
-            ImGui.SetCursorScreenPos(p + new Vector2(20f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Text3, "EST. COST");
-            ImGui.SetCursorScreenPos(p + new Vector2(20f * PluginUI.AppScale, 20f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Bad, $"{totalCost:N0}");
-            ImGui.SameLine(0, 2f);
-            ImGui.TextColored(Theme.Text2, "g");
-
-            // Value Segment
-            ImGui.SetCursorScreenPos(p + new Vector2(150f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Text3, "EST. VALUE");
-            ImGui.SetCursorScreenPos(p + new Vector2(150f * PluginUI.AppScale, 20f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Gold, $"{totalValue:N0}");
-            ImGui.SameLine(0, 2f);
-            ImGui.TextColored(Theme.Text2, "g");
-
-            // Profit Segment
-            ImGui.SetCursorScreenPos(p + new Vector2(280f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(Theme.Text3, "PROFIT");
-            ImGui.SetCursorScreenPos(p + new Vector2(280f * PluginUI.AppScale, 20f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.6f, 1f), $"{profit:N0}");
-            ImGui.SameLine(0, 2f);
-            ImGui.TextColored(Theme.Text2, "g");
-
-            // Fetch Button perfectly aligned to the right
-            Vector2 btnPos = p + new Vector2(totalWidth - 140f * PluginUI.AppScale, 9f * PluginUI.AppScale);
-            if (UIHelper.DrawPremiumButton("fetchPrices", btnPos, new Vector2(130f * PluginUI.AppScale, 26f * PluginUI.AppScale), _isFetchingPrices ? "Fetching..." : "Fetch Prices", new Vector4(0.15f, 0.35f, 0.7f, 1f), new Vector4(0.25f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
-            {
-                FetchPrices(_cachedRollup.Select(x => x.ItemId).ToList());
-            }
-
-            ImGui.SetCursorScreenPos(p + new Vector2(0, badgeHeight + 15f * PluginUI.AppScale));
-            ImGui.EndGroup();
-
-            ImGui.BeginChild("rollupList", new Vector2(0, 0), false);
-
-            var crystals = _cachedRollup.Where(x => x.Category == "Crystals").ToList();
-            if (crystals.Count > 0)
-            {
-                bool allDone = crystals.All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Crystals", crystals.Count, Theme.Text, allDone))
-                {
-                    DrawCrystalsRow(crystals);
-                }
-            }
-
-            var timedByZone = _cachedRollup.Where(x => x.Category == "Timed Node").GroupBy(x => x.Zone).OrderBy(g => g.Key).ToList();
-            if (timedByZone.Count > 0)
-            {
-                bool allDone = timedByZone.SelectMany(g => g).All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Timed nodes", timedByZone.Sum(g => g.Count()), new Vector4(0.2f, 0.6f, 0.3f, 1f), allDone))
-                {
-                    foreach(var grp in timedByZone) DrawGatheringCategory(grp.Key, grp.ToList());
-                }
-            }
-
-            var gatheringByZone = _cachedRollup.Where(x => x.Category == "Gathering").GroupBy(x => x.Zone).OrderBy(g => g.Key).ToList();
-            if (gatheringByZone.Count > 0)
-            {
-                bool allDone = gatheringByZone.SelectMany(g => g).All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Gathering", gatheringByZone.Sum(g => g.Count()), Theme.CrystalDeep, allDone))
-                {
-                    foreach(var grp in gatheringByZone) DrawGatheringCategory(grp.Key, grp.ToList());
-                }
-            }
-
-            var others = _cachedRollup.Where(x => x.Category == "Other").ToList();
-            if (others.Count > 0)
-            {
-                bool allDone = others.All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Other Materials", others.Count, Theme.Text3, allDone))
-                {
-                    DrawGatheringCategory("", others);
-                }
-            }
-
-            var precraftsByTier = _cachedRollup.Where(x => x.Category == "Pre-craft").GroupBy(x => x.Tier).OrderByDescending(g => g.Key).ToList();
-            if (precraftsByTier.Count > 0)
-            {
-                bool allDone = precraftsByTier.SelectMany(g => g).All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Pre-crafts", _cachedRollup.Count(x => x.Category == "Pre-craft"), new Vector4(0.6f, 0.4f, 0.8f, 1f), allDone))
-                {
-                    foreach(var grp in precraftsByTier) DrawGatheringCategory($"Tier {grp.Key}", grp.ToList());
-                }
-            }
-            
-            var finals = _cachedRollup.Where(x => x.Category == "Final").ToList();
-            if (finals.Count > 0)
-            {
-                bool allDone = finals.All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Items (Final crafts)", finals.Count, new Vector4(0.8f, 0.4f, 0.2f, 1f), allDone))
-                {
-                    DrawGatheringCategory("", finals);
-                }
-            }
-
-            ImGui.EndChild();
-        }
-
-        private bool DrawSectionHeader(string title, int count, Vector4 color, bool allDone)
-        {
-            var drawList = ImGui.GetWindowDrawList();
-            Vector2 p = ImGui.GetCursorScreenPos();
-            float width = ImGui.GetContentRegionAvail().X;
-            float height = ImGui.GetFrameHeight() + 10f * PluginUI.AppScale;
-
-            bool wasDone = _categoryDoneState.TryGetValue(title, out var d) && d;
-            if (allDone && !wasDone)
-            {
-                _categoryCollapsedState[title] = true;
-            }
-            _categoryDoneState[title] = allDone;
-
-            if (!_categoryCollapsedState.TryGetValue(title, out bool isCollapsed))
-            {
-                isCollapsed = allDone;
-                _categoryCollapsedState[title] = isCollapsed;
-            }
-
-            ImGui.SetCursorScreenPos(p);
-            if (ImGui.InvisibleButton($"##btn_{title}", new Vector2(width, height)))
-            {
-                isCollapsed = !isCollapsed;
-                _categoryCollapsedState[title] = isCollapsed;
-            }
-            bool isHovered = ImGui.IsItemHovered();
-
-            if (allDone)
-            {
-                // Completed State - Beautiful Green Card
-                drawList.AddRectFilled(p, p + new Vector2(width, height), ImGui.GetColorU32(new Vector4(0.05f, 0.2f, 0.1f, isHovered ? 0.8f : 0.6f)), 4f * PluginUI.AppScale);
-                drawList.AddRect(p, p + new Vector2(width, height), ImGui.GetColorU32(new Vector4(0.1f, 0.4f, 0.2f, isHovered ? 0.6f : 0.4f)), 4f * PluginUI.AppScale);
-
-                // Draw title
-                Vector2 titlePos = p + new Vector2(15f * PluginUI.AppScale, 6f * PluginUI.AppScale);
-                drawList.AddText(titlePos, ImGui.GetColorU32(Theme.Live), title);
-                
-                // Draw count badge
-                string countText = $"{count} items";
-                var titleSize = ImGui.CalcTextSize(title);
-                var countSize = ImGui.CalcTextSize(countText);
-                Vector2 badgePos = p + new Vector2(15f * PluginUI.AppScale + titleSize.X + 15f * PluginUI.AppScale, 4f * PluginUI.AppScale);
-                drawList.AddRectFilled(badgePos, badgePos + new Vector2(countSize.X + 10f * PluginUI.AppScale, countSize.Y + 4f * PluginUI.AppScale), ImGui.GetColorU32(new Vector4(0.2f, 0.6f, 0.3f, 0.3f)), 10f * PluginUI.AppScale);
-                drawList.AddText(badgePos + new Vector2(5f * PluginUI.AppScale, 2f * PluginUI.AppScale), ImGui.GetColorU32(Theme.Live), countText);
-                
-                // Draw Checkmark icon
-                ImGui.PushFont(UiBuilder.IconFont);
-                var checkSize = ImGui.CalcTextSize("\uF00C");
-                drawList.AddText(p + new Vector2(width - checkSize.X - 15f * PluginUI.AppScale, 7f * PluginUI.AppScale), ImGui.GetColorU32(new Vector4(0.3f, 0.8f, 0.3f, 1f)), "\uF00C");
-                ImGui.PopFont();
-
-                ImGui.SetCursorScreenPos(p + new Vector2(0, height + 6f * PluginUI.AppScale));
-                return !isCollapsed;
+                float tw = Math.Max(S(300), avail.X * 0.34f);
+                ImGui.SetCursorScreenPos(new Vector2(top.X, y));
+                if (UIHelper.BeginSmoothChild("cf_targets", new Vector2(tw, bottom - y))) DrawTargets(tw - S(10));
+                ImGui.EndChild();
+                ImGui.SetCursorScreenPos(new Vector2(top.X + tw + S(12), y));
+                if (UIHelper.BeginSmoothChild("cf_mats", new Vector2(avail.X - tw - S(12), bottom - y))) DrawMaterials(avail.X - tw - S(22));
+                ImGui.EndChild();
             }
             else
             {
-                // Open State - Sleek premium card header
-                drawList.AddRectFilled(p, p + new Vector2(width, height), ImGui.GetColorU32(new Vector4(0.1f, 0.1f, 0.13f, isHovered ? 0.9f : 0.8f)), 4f * PluginUI.AppScale);
-                
-                // Left accent bar
-                drawList.AddRectFilled(p, p + new Vector2(4f * PluginUI.AppScale, height), ImGui.GetColorU32(color), 4f * PluginUI.AppScale, ImDrawFlags.RoundCornersLeft);
-                
-                // Title
-                Vector2 titlePos = p + new Vector2(15f * PluginUI.AppScale, 6f * PluginUI.AppScale);
-                drawList.AddText(titlePos, ImGui.GetColorU32(color), title);
-                
-                // Badge
-                string countText = $"{count} items";
-                var titleSize = ImGui.CalcTextSize(title);
-                var countSize = ImGui.CalcTextSize(countText);
-                Vector2 badgePos = titlePos + new Vector2(titleSize.X + 15f * PluginUI.AppScale, -2f * PluginUI.AppScale);
-                drawList.AddRectFilled(badgePos, badgePos + new Vector2(countSize.X + 10f * PluginUI.AppScale, countSize.Y + 4f * PluginUI.AppScale), ImGui.GetColorU32(new Vector4(color.X, color.Y, color.Z, 0.15f)), 10f * PluginUI.AppScale);
-                drawList.AddText(badgePos + new Vector2(5f * PluginUI.AppScale, 2f * PluginUI.AppScale), ImGui.GetColorU32(color), countText);
-
-                ImGui.SetCursorScreenPos(p + new Vector2(0, height + 4f * PluginUI.AppScale));
-                return !isCollapsed;
+                ImGui.SetCursorScreenPos(new Vector2(top.X, y));
+                if (UIHelper.BeginSmoothChild("cf_pipe", new Vector2(avail.X, bottom - y)))
+                {
+                    DrawTargets(avail.X - S(10));
+                    ImGui.Dummy(new Vector2(1, S(8)));
+                    DrawMaterials(avail.X - S(10));
+                }
+                ImGui.EndChild();
             }
         }
 
-        private void DrawCrystalsRow(List<MaterialRollup> crystals)
+        private void DrawTargets(float w)
         {
-            Vector2 p = ImGui.GetCursorScreenPos();
-            
-            for (int i = 0; i < crystals.Count; i++)
+            var dl = Ui.Dl;
+            var p = ImGui.GetCursorScreenPos();
+            Ui.Caps(dl, p + S(2, 2), "Targets");
+            float y = p.Y + LH + S(10);
+            var items = _dataManager.GetExcelSheet<Item>();
+            float rowH = S(18) + LH * 2;
+            JObject? remove = null;
+            bool changed = false;
+            foreach (var t in _targets)
             {
-                var mat = crystals[i];
-                ImGui.SetCursorScreenPos(p + new Vector2(i * 45f * PluginUI.AppScale, 0));
-                
-                if (mat.IconTexture != null && mat.IconTexture.GetWrapOrDefault() != null)
-                {
-                    ImGui.Image(mat.IconTexture.GetWrapOrDefault().Handle, new Vector2(32f * PluginUI.AppScale, 32f * PluginUI.AppScale));
-                }
-                
-                ImGui.SetCursorScreenPos(p + new Vector2(i * 45f * PluginUI.AppScale, 34f * PluginUI.AppScale));
-                ImGui.TextColored(Theme.Text, $"x{mat.Amount}");
+                uint itemId = (uint)Int(t, "itemId");
+                int qty = Math.Max(1, Int(t, "quantity", 1));
+                var m = _rollup?.FirstOrDefault(r => r.Id == itemId && r.Cat == "final");
+                int have = m?.Inv ?? 0;
+                var rp = new Vector2(p.X, y);
+                bool done = have >= qty;
+                Ui.Panel(dl, rp, rp + new Vector2(w, rowH), Theme.Night2.With(0.65f), done ? Theme.Live.With(0.5f) : Theme.CrystalLine, 8f);
+                float ic = rowH - S(16);
+                var row = items.GetRowOrDefault(itemId);
+                if (row.HasValue) GameIcon(row.Value.Icon, rp + S(8, 8), ic);
+                float tx = rp.X + ic + S(16), tw = w - ic - S(24) - StepperW - S(34);
+                Ui.Text(dl, new Vector2(tx, rp.Y + S(6)), Fit(Str(t, "name"), tw), Theme.Text);
+                Ui.Text(dl, new Vector2(tx, rp.Y + S(8) + LH), $"{Str(t, "job")} · Lv {Int(t, "level")} · {Math.Min(have, qty)}/{qty}", done ? Theme.Live : Theme.Text3, 0.85f);
+                Ui.Progress(dl, new Vector2(tx, rp.Y + rowH - S(7)), tw, (float)Math.Min(have, qty) / qty, done ? Theme.Live : Ui.Accent, 3f);
+                float by = rp.Y + (rowH - S(26)) / 2;
+                if (Stepper("cf_tq" + Str(t, "id"), ref qty, new Vector2(rp.X + w - StepperW - S(34), by))) { t["quantity"] = qty; changed = true; }
+                if (Ui.IconButton("cf_trm" + Str(t, "id"), FontAwesomeIcon.Times, new Vector2(rp.X + w - S(30), by), S(26), "Remove", Theme.Bad)) remove = t;
+                y += rowH + S(6);
             }
-            ImGui.SetCursorScreenPos(p + new Vector2(0, 55f * PluginUI.AppScale));
+            if (remove != null) { _targets.Remove(remove); changed = true; }
+            if (changed) { WritePipeline(rebuild: true); BuildRollup(); }
+
+            bool armed = (DateTime.Now - _confirmClearAt).TotalSeconds < 3;
+            if (Ui.Button("cf_clear", armed ? "Tap again to clear" : "Clear pipeline", new Vector2(p.X, y + S(4)), new Vector2(w, S(32)), armed ? Kind.Danger : Kind.Ghost, FontAwesomeIcon.Trash))
+            {
+                if (armed) ClearPipeline();
+                else _confirmClearAt = DateTime.Now;
+            }
+            Advance(p, y - p.Y + S(40));
         }
 
-        private void DrawGatheringCategory(string title, List<MaterialRollup> items)
+        private void ClearPipeline()
         {
-            if (!string.IsNullOrEmpty(title))
-            {
-                ImGui.TextColored(Theme.Text2, title);
-                ImGui.Dummy(new Vector2(0, 2f * PluginUI.AppScale));
-            }
-
-            foreach (var mat in items)
-            {
-                bool isDone = mat.InventoryCount >= mat.EffectiveAmount;
-
-                Vector2 mp = ImGui.GetCursorScreenPos();
-                float matHeight = 40f * PluginUI.AppScale;
-                Vector2 matSize = new Vector2(ImGui.GetContentRegionAvail().X, matHeight);
-                
-                Vector4 bgCardCol = isDone ? new Vector4(0.05f, 0.15f, 0.08f, 0.5f) : (mat.IsReadyToCraft ? new Vector4(0.1f, 0.25f, 0.3f, 0.6f) : Theme.Night2.With(0.8f));
-                Vector4 bgBorderCol = isDone ? new Vector4(0.2f, 0.6f, 0.3f, 0.4f) : (mat.IsReadyToCraft ? new Vector4(0.2f, 0.8f, 0.9f, 0.5f) : new Vector4(0.25f, 0.25f, 0.28f, 0.6f));
-
-                ImGui.PushStyleVar(ImGuiStyleVar.Alpha, isDone ? 0.5f : 1f);
-
-                UIHelper.DrawCard(mp, matSize, bgCardCol, 4f * PluginUI.AppScale, bgBorderCol);
-                ImGui.SetCursorScreenPos(mp + new Vector2(5f * PluginUI.AppScale, 4f * PluginUI.AppScale));
-
-                if (mat.IconTexture != null && mat.IconTexture.GetWrapOrDefault() != null)
-                {
-                    ImGui.Image(mat.IconTexture.GetWrapOrDefault().Handle, new Vector2(32f * PluginUI.AppScale, 32f * PluginUI.AppScale));
-                }
-                else
-                {
-                    ImGui.Dummy(new Vector2(32f * PluginUI.AppScale, 32f * PluginUI.AppScale));
-                }
-
-                ImGui.SameLine();
-                ImGui.SetCursorScreenPos(mp + new Vector2(45f * PluginUI.AppScale, 12f * PluginUI.AppScale));
-                
-                ImGui.TextColored(Theme.Text, mat.Name);
-                if (mat.Stars > 0)
-                {
-                    ImGui.SameLine();
-                    ImGui.TextColored(Theme.Gold, new string('\u2605', mat.Stars));
-                }
-
-                float rightAlign = matSize.X - 250f * PluginUI.AppScale;
-                Vector2 btnBasePos = mp + new Vector2(rightAlign, 8f * PluginUI.AppScale);
-                float currentBtnX = btnBasePos.X;
-                ImGui.SetCursorScreenPos(btnBasePos);
-                
-                if (mat.Category == "Gathering" || mat.Category == "Timed Node" || mat.Category == "Crystals")
-                {
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawPremiumButton("btn_route_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF277", new Vector4(0.2f, 0.4f, 0.2f, 1f), new Vector4(0.3f, 0.6f, 0.3f, 1f), Vector4.One, Vector4.One))
-                    {
-                        var existingRoute = _configuration.GatheringActiveRoute.FirstOrDefault(x => x.ItemId == mat.ItemId);
-                        if (existingRoute == null)
-                        {
-                            _configuration.GatheringActiveRoute.Add(new RouteItem { ItemId = mat.ItemId, TargetQuantity = mat.Amount });
-                            _configuration.Save();
-                        }
-                    }
-                    ImGui.PopFont();
-                    if (ImGui.IsItemHovered())
-                    {
-                        UIHelper.BeginTooltip();
-                        ImGui.TextColored(new Vector4(0.4f, 0.8f, 0.4f, 1f), "Send to Gathering Route");
-                        UIHelper.EndTooltip();
-                    }
-                    currentBtnX += 30f * PluginUI.AppScale;
-                    
-                    if (mat.AetheryteId != 0)
-                    {
-                        ImGui.SameLine();
-                        ImGui.PushFont(UiBuilder.IconFont);
-                        if (UIHelper.DrawPremiumButton("btn_tp_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF3C5", new Vector4(0.6f, 0.2f, 0.6f, 1f), new Vector4(0.7f, 0.3f, 0.7f, 1f), Vector4.One, Vector4.One))
-                        {
-                            GatheringApp.TeleportToAetheryte(mat.AetheryteId);
-                        }
-                        ImGui.PopFont();
-                        if (ImGui.IsItemHovered())
-                        {
-                            UIHelper.BeginTooltip();
-                            ImGui.TextColored(Theme.Gold, "Teleport");
-                            UIHelper.EndTooltip();
-                        }
-                        currentBtnX += 30f * PluginUI.AppScale;
-                    }
-                    ImGui.SameLine();
-                }
-
-                if (mat.Category != "Final")
-                {
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawPremiumButton("btn_cart_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF07A", Theme.CrystalDeep, new Vector4(0.3f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
-                    {
-                        MarketApp.OnAddToCart?.Invoke(new CartItem { id = (int)mat.ItemId, name = mat.Name, icon = mat.IconTexture != null ? $"/i/020000/{mat.IconId:000000}.png" : "", quantity = mat.Amount - mat.InventoryCount > 0 ? mat.Amount - mat.InventoryCount : 1, hq = false });
-                    }
-                    ImGui.PopFont();
-                    if (ImGui.IsItemHovered())
-                    {
-                        UIHelper.BeginTooltip();
-                        ImGui.TextColored(Theme.Crystal, "Send to Shopping Cart");
-                        UIHelper.EndTooltip();
-                    }
-                    currentBtnX += 30f * PluginUI.AppScale;
-                }
-
-                if (!string.IsNullOrEmpty(mat.SpawnTimes))
-                {
-                    ImGui.SameLine();
-                    ImGui.TextColored(Theme.Text, mat.SpawnTimes);
-                }
-
-                ImGui.SameLine();
-                ImGui.SetCursorScreenPos(mp + new Vector2(matSize.X - 70f * PluginUI.AppScale, 12f * PluginUI.AppScale));
-                
-                ImGui.TextColored(isDone ? Theme.Live : Theme.Text, $"{mat.InventoryCount} / {mat.Amount}");
-                if (isDone)
-                {
-                    ImGui.SameLine();
-                    ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.TextColored(Theme.Live, "\uF00C");
-                    ImGui.PopFont();
-                }
-
-                ImGui.PopStyleVar();
-                ImGui.SetCursorScreenPos(mp + new Vector2(0, matHeight + 2f * PluginUI.AppScale));
-            }
-
-            ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
+            _targets.Clear();
+            _items = new JObject();
+            _confirmClearAt = DateTime.MinValue;
+            WritePipeline(rebuild: false);
         }
 
-        private unsafe int GetTotalInventoryItemCount(uint itemId)
+        private void DrawMaterials(float w)
         {
-            var manager = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
-            if (manager == null) return 0;
-            return manager->GetInventoryItemCount(itemId, false, false, false, 0) + manager->GetInventoryItemCount(itemId, true, false, false, 0);
+            var dl = Ui.Dl;
+            var mats = _rollup!;
+            foreach (var (cat, title, color) in Sections)
+            {
+                var list = mats.Where(m => m.Cat == cat).ToList();
+                if (list.Count == 0) continue;
+                if (!SectionHeader(cat, title, list.Count, color, list.All(m => m.Done), w)) continue;
+
+                if (cat == "crystals") { DrawCrystals(list, w); continue; }
+                IEnumerable<IGrouping<string, Mat>> groups = cat switch
+                {
+                    "timed" or "gathering" => list.GroupBy(m => m.Zone).OrderBy(g => g.Key),
+                    "precraft" => list.GroupBy(m => $"Tier {m.Tier}").OrderByDescending(g => g.Key),
+                    _ => list.GroupBy(_ => ""),
+                };
+                foreach (var g in groups)
+                {
+                    if (g.Key.Length > 0)
+                    {
+                        var gp = ImGui.GetCursorScreenPos();
+                        Ui.Text(dl, gp + S(4, 0), g.Key, Theme.Text2, 0.88f);
+                        Advance(gp, LH + S(4));
+                    }
+                    foreach (var m in g) DrawMatRow(m, w);
+                }
+                ImGui.Dummy(new Vector2(1, S(6)));
+            }
         }
 
-        private unsafe void CalculateRollup()
+        private bool SectionHeader(string key, string title, int count, Vector4 color, bool done, float w)
         {
-            try
+            var dl = Ui.Dl;
+            var p = ImGui.GetCursorScreenPos();
+            float h = LH + S(14);
+            bool open = !_collapsed.GetValueOrDefault(key);
+            if (Ui.Hit("cf_sec" + key, p, new Vector2(w, h), out float hov)) { open = !open; _collapsed[key] = !open; }
+            dl.AddRectFilled(p, p + new Vector2(w, h), Theme.Night1.With(0.5f + 0.3f * hov).U32(), S(6));
+            dl.AddRectFilled(p, p + new Vector2(S(3), h), color.U32(), S(2));
+            Ui.Icon(dl, p + new Vector2(S(12), (h - LH) / 2 + S(1)), open ? FontAwesomeIcon.ChevronDown : FontAwesomeIcon.ChevronRight, Theme.Text3, 0.75f);
+            float tw = Ui.Caps(dl, p + new Vector2(S(32), (h - LH * 0.78f) / 2), title, color);
+            Ui.Text(dl, p + new Vector2(S(42) + tw, (h - LH * 0.85f) / 2), count.ToString(), Theme.Text3, 0.85f);
+            if (done) Ui.Icon(dl, p + new Vector2(w - S(26), (h - LH) / 2 + S(1)), FontAwesomeIcon.CheckCircle, Theme.Live, 0.9f);
+            Advance(p, h + S(6));
+            return open;
+        }
+
+        private void DrawCrystals(List<Mat> list, float w)
+        {
+            var dl = Ui.Dl;
+            var p = ImGui.GetCursorScreenPos();
+            float ic = S(26), cellH = ic + S(10), x = p.X, y = p.Y;
+            foreach (var m in list)
             {
-                _cachedRollup = new List<MaterialRollup>();
-                var sheet = _dataManager.GetExcelSheet<Recipe>();
-                var itemSheet = _dataManager.GetExcelSheet<Item>();
-                if (sheet == null || itemSheet == null) return;
-
-                Dictionary<uint, int> rawMats = new Dictionary<uint, int>();
-                Dictionary<uint, int> crystals = new Dictionary<uint, int>();
-                Dictionary<uint, int> precrafts = new Dictionary<uint, int>();
-
-                foreach (var target in _configuration.CraftingActivePipeline)
-                {
-                    if (target.RecipeId != 0)
-                    {
-                        var r = sheet.GetRow(target.RecipeId);
-                        if (r.RowId != 0 && r.RowId != uint.MaxValue && r.ItemResult.Value.RowId != 0)
-                        {
-                            target.ItemId = r.ItemResult.Value.RowId; // Ensure target has ItemId for value calculation
-                        }
-                        ProcessRecipe(target.RecipeId, target.Amount, rawMats, precrafts, crystals, sheet);
-                    }
-                }
-
-            var manager = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
-
-            foreach (var kvp in precrafts)
-            {
-                var i = itemSheet.GetRow(kvp.Key);
-                int invCount = GetTotalInventoryItemCount(kvp.Key);
-                _cachedRollup.Add(new MaterialRollup { ItemId = kvp.Key, Amount = kvp.Value, Category = "Pre-craft", Tier = 1, Name = i.Name.ToString() ?? "Unknown", IconId = i.Icon, IconTexture = i.RowId != 0 ? _textureProvider.GetFromGameIcon(new GameIconLookup(i.Icon)) : null, InventoryCount = invCount });
+                var txt = $"{m.Have}/{m.Eff}";
+                float cw = ic + S(18) + Ui.TextSize(txt, 0.9f).X;
+                if (x + cw > p.X + w && x > p.X) { x = p.X; y += cellH + S(6); }
+                var cp = new Vector2(x, y);
+                Ui.Hit("cf_cr" + m.Id, cp, new Vector2(cw, cellH), out float h);
+                Ui.Tooltip(m.Name);
+                dl.AddRectFilled(cp, cp + new Vector2(cw, cellH), (m.Done ? Theme.Live.With(0.1f) : Theme.Night2.With(0.6f + 0.3f * h)).U32(), cellH / 2);
+                dl.AddRect(cp, cp + new Vector2(cw, cellH), (m.Done ? Theme.Live.With(0.45f) : Theme.CrystalLine).U32(), cellH / 2, 0, S(1));
+                GameIcon(m.Icon, cp + S(6, 5), ic);
+                Ui.Text(dl, cp + new Vector2(ic + S(10), (cellH - LH * 0.9f) / 2), txt, m.Done ? Theme.Live : Theme.Text, 0.9f);
+                x += cw + S(6);
             }
-            foreach (var kvp in rawMats)
-            {
-                var i = itemSheet.GetRow(kvp.Key);
-                int invCount = GetTotalInventoryItemCount(kvp.Key);
-                
-                string category = "Other";
-                string zone = "";
-                string spawnTimes = "";
-                int stars = 0;
-                uint aetheryteId = 0;
-                
-                var node = GatheringApp.Nodes.FirstOrDefault(n => n.ItemId == kvp.Key);
-                if (node != null)
-                {
-                    zone = node.zone ?? "Unknown Zone";
-                    if (node.hours != null && node.hours.Count > 0)
-                    {
-                        category = "Timed Node";
-                        spawnTimes = string.Join(", ", node.hours.Select(h => $"{h:00}:00"));
-                    }
-                    else
-                    {
-                        category = "Gathering";
-                    }
-                    stars = node.stats?.stars ?? 0;
+            Advance(p, y - p.Y + cellH + S(8));
+        }
 
-                    var dn = GatheringApp.DataNodesMap.Values.FirstOrDefault(n => (n.items != null && n.items.Contains((int)kvp.Key)) || (n.hiddenItems != null && n.hiddenItems.Contains((int)kvp.Key)));
-                    if (dn != null && dn.map > 0)
-                    {
-                        var maps = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Map>();
-                        var mapRow = maps?.GetRowOrDefault((uint)dn.map);
-                        if (mapRow.HasValue)
-                        {
-                            var territoryId = mapRow.Value.TerritoryType.RowId;
-                            var aetherytes = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
-                            var a = aetherytes?.FirstOrDefault(x => x.IsAetheryte && x.Territory.RowId == territoryId);
-                            if (a.HasValue) aetheryteId = a.Value.RowId;
-                        }
-                    }
-                }
-                else
-                {
-                    var dn = GatheringApp.DataNodesMap.Values.FirstOrDefault(n => (n.items != null && n.items.Contains((int)kvp.Key)) || (n.hiddenItems != null && n.hiddenItems.Contains((int)kvp.Key)));
-                    if (dn != null)
-                    {
-                        category = "Gathering";
-                        zone = "Unknown Zone";
+        private void DrawMatRow(Mat m, float w)
+        {
+            var dl = Ui.Dl;
+            var p = ImGui.GetCursorScreenPos();
+            float rowH = S(14) + LH * 2;
+            if (!ImGui.IsRectVisible(new Vector2(w, rowH))) { Advance(p, rowH + S(5)); return; }
 
-                        if (dn.zoneid > 0)
-                        {
-                            var placeSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.PlaceName>();
-                            var place = placeSheet?.GetRowOrDefault((uint)dn.zoneid);
-                            if (place.HasValue && !string.IsNullOrEmpty(place.Value.Name.ToString()))
-                            {
-                                zone = place.Value.Name.ToString();
-                            }
-                        }
+            var line = m.Done ? Theme.Live.With(0.45f) : m.Ready ? Ui.Accent.With(0.6f) : Theme.CrystalLine;
+            Ui.Panel(dl, p, p + new Vector2(w, rowH), m.Done ? Theme.Live.With(0.06f) : Theme.Night2.With(0.6f), line, 6f);
+            float alpha = m.Done ? 0.55f : 1f;
+            float ic = rowH - S(14);
+            GameIcon(m.Icon, p + S(7, 7), ic, alpha);
 
-                        if (dn.map > 0)
-                        {
-                            var maps = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Map>();
-                            var mapRow = maps?.GetRowOrDefault((uint)dn.map);
-                            if (mapRow.HasValue)
-                            {
-                                var territoryId = mapRow.Value.TerritoryType.RowId;
-                                var aetherytes = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>();
-                                var a = aetherytes?.FirstOrDefault(x => x.IsAetheryte && x.Territory.RowId == territoryId);
-                                if (a.HasValue) aetheryteId = a.Value.RowId;
-                            }
-                        }
-                    }
+            // right side: buttons, method chip, count
+            float b = S(26), right = p.X + w - S(8), by = p.Y + (rowH - b) / 2;
+            bool gatherable = m.Cat is "gathering" or "timed" or "crystals";
+            if (!m.Crafted || m.Cat == "precraft")
+            {
+                if (Ui.IconButton("cf_cart" + m.Id, FontAwesomeIcon.ShoppingCart, new Vector2(right - b, by), b, "Add to the shopping list"))
+                    MarketApp.OnAddToCart?.Invoke(new CartItem { id = (int)m.Id, name = m.Name, icon = IconPath(m.Icon), quantity = Math.Max(1, m.Eff - m.Have), hq = false });
+                right -= b + S(4);
+            }
+            if (gatherable && m.Aetheryte != 0)
+            {
+                if (Ui.IconButton("cf_tp" + m.Id, FontAwesomeIcon.MapMarkerAlt, new Vector2(right - b, by), b, "Teleport to the nearest aetheryte"))
+                    GatheringApp.TeleportToAetheryte(m.Aetheryte);
+                right -= b + S(4);
+            }
+            if (gatherable)
+            {
+                bool onRoute = _configuration.GatheringActiveRoute.Any(r => r.ItemId == m.Id);
+                if (Ui.IconButton("cf_rt" + m.Id, FontAwesomeIcon.Route, new Vector2(right - b, by), b, onRoute ? "On your gathering route" : "Add to the gathering route", null, onRoute) && !onRoute)
+                {
+                    _configuration.GatheringActiveRoute.Add(new RouteItem { ItemId = m.Id, TargetQuantity = Math.Max(1, m.Eff - m.Have) });
+                    _configuration.Save();
                 }
+                right -= b + S(4);
+            }
+            if (m.Cat != "final")
+            {
+                string label = MethodLabel(m);
+                var ts = Ui.TextSize(label, 0.8f);
+                var cs = ts + S(14, 6);
+                var cp = new Vector2(right - cs.X - S(4), p.Y + (rowH - cs.Y) / 2);
+                if (Ui.Hit("cf_mt" + m.Id, cp, cs, out float hv)) ToggleMethod(m);
+                Ui.Tooltip(m.Crafted ? "Craft it yourself or buy it finished (shared with the website)" : "Gather it or buy it (shared with the website)");
+                var mc = label == "Buy" ? Theme.Warn : label == "Craft" ? Theme.Violet : Theme.Live;
+                dl.AddRectFilled(cp, cp + cs, mc.With(0.12f + 0.12f * hv).U32(), cs.Y / 2);
+                dl.AddRect(cp, cp + cs, mc.With(0.45f).U32(), cs.Y / 2, 0, S(1));
+                Ui.Text(dl, cp + S(7, 3), label, mc, 0.8f);
+                right = cp.X - S(6);
+            }
+            var cnt = $"{m.Have}/{m.Eff}";
+            var cts = Ui.TextSize(cnt);
+            Ui.Text(dl, new Vector2(right - cts.X, p.Y + (rowH - cts.Y) / 2), cnt, m.Done ? Theme.Live : Theme.Text);
+            if (m.Done) Ui.Icon(dl, new Vector2(right - cts.X - S(22), p.Y + (rowH - LH) / 2 + S(1)), FontAwesomeIcon.Check, Theme.Live, 0.85f);
+            right -= cts.X + S(30);
 
-                _cachedRollup.Add(new MaterialRollup { ItemId = kvp.Key, Amount = kvp.Value, Category = category, Zone = zone, SpawnTimes = spawnTimes, Stars = stars, Name = i.Name.ToString() ?? "Unknown", IconId = i.Icon, IconTexture = i.RowId != 0 ? _textureProvider.GetFromGameIcon(new GameIconLookup(i.Icon)) : null, InventoryCount = invCount, AetheryteId = aetheryteId });
-            }
-            foreach (var kvp in crystals)
+            // left: name, stars, details
+            float tx = p.X + ic + S(16), tw = right - tx;
+            var name = m.Name + (m.Stars > 0 ? " " + new string('*', m.Stars) : "");
+            Ui.Text(dl, new Vector2(tx, p.Y + S(6)), Fit(name, tw), Theme.Text.With(alpha));
+            var bits = new List<string>();
+            if (m.Times.Length > 0) bits.Add(m.Times);
+            if (m.Cat is "tomes" or "drops" && m.Zone.Length > 0) bits.Add(m.Zone);
+            if (m.Crafted && !m.Done) bits.Add(m.Ready ? "Ready to craft" : "Missing materials");
+            int price = PriceOf(m);
+            if (price > 0 && !m.Crafted) bits.Add($"{price:N0} g each");
+            if (bits.Count > 0)
+                Ui.Text(dl, new Vector2(tx, p.Y + S(8) + LH), Fit(string.Join(" · ", bits), tw, 0.85f), m.Ready && !m.Done ? Ui.Accent : Theme.Text3, 0.85f);
+            Advance(p, rowH + S(5));
+        }
+
+        private static string MethodLabel(Mat m) => m.Crafted
+            ? (m.Method == "Buy Finished" ? "Buy" : "Craft")
+            : (m.Method == "Buy Raw" || (m.Method == null && m.Cat is "tomes" or "drops") ? "Buy" : "Gather");
+
+        private void ToggleMethod(Mat m)
+        {
+            string next = m.Crafted ? (MethodLabel(m) == "Craft" ? "Buy Finished" : "Craft") : (MethodLabel(m) == "Gather" ? "Buy Raw" : "Gather");
+            if (_items[m.Id.ToString()] is JObject o) { o["acquisitionMethod"] = next; WritePipeline(rebuild: false); }
+        }
+
+        private int PriceOf(Mat m) => _priceCache.TryGetValue(m.Id, out var p) && p > 0 ? p : m.Price;
+
+        // =============================================================================================================
+        // Model: website items -> Mat list; live counts; rebuilding the item tree from game data
+        // =============================================================================================================
+        private void BuildRollup()
+        {
+            var list = new List<Mat>();
+            var itemSheet = _dataManager.GetExcelSheet<Item>();
+            foreach (var prop in _items.Properties())
             {
-                var i = itemSheet.GetRow(kvp.Key);
-                int invCount = GetTotalInventoryItemCount(kvp.Key);
-                _cachedRollup.Add(new MaterialRollup { ItemId = kvp.Key, Amount = kvp.Value, Category = "Crystals", Name = i.Name.ToString() ?? "Unknown", IconId = i.Icon, IconTexture = i.RowId != 0 ? _textureProvider.GetFromGameIcon(new GameIconLookup(i.Icon)) : null, InventoryCount = invCount });
+                if (prop.Value is not JObject o || !uint.TryParse(prop.Name, out var id)) continue;
+                var row = itemSheet.GetRowOrDefault(id);
+                var m = new Mat
+                {
+                    Id = id,
+                    Name = Str(o, "name") is { Length: > 0 } n ? n : row?.Name.ToString() ?? $"Item {id}",
+                    Icon = row.HasValue ? row.Value.Icon : 0u,
+                    Cat = Str(o, "category"),
+                    Tier = Int(o, "tier"),
+                    Req = Int(o, "quantityRequired"),
+                    Completed = Int(o, "completed"),
+                    Yield = Math.Max(1, Int(o, "yield", 1)),
+                    Stars = Int(o, "stars"),
+                    Price = Int(o, "unitPrice"),
+                    Zone = Str(o, "zone"),
+                    Times = o["time"] is JArray ta ? string.Join(", ", ta.Select(x => x.ToString())) : "",
+                    Method = Str(o, "acquisitionMethod") is { Length: > 0 } am ? am : null,
+                };
+                if (o["ingredients"] is JArray ings)
+                    foreach (var ing in ings.OfType<JObject>()) m.Ings.Add(((uint)Int(ing, "itemId"), Int(ing, "amount")));
+                if (m.Cat is "gathering" or "timed")
+                {
+                    var node = NodeInfo(id);
+                    if (m.Zone.Length == 0) m.Zone = node.Zone;
+                    if (m.Times.Length == 0) m.Times = node.Times;
+                    m.Aetheryte = node.Aetheryte;
+                }
+                if (m.Zone.Length == 0 && m.Cat is "gathering" or "timed") m.Zone = "Unknown zone";
+                list.Add(m);
             }
-            
-            foreach (var target in _configuration.CraftingActivePipeline)
+            _rollup = list;
+            _countsAt = DateTime.MinValue;
+        }
+
+        private unsafe int Bag(uint itemId)
+        {
+            var mgr = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
+            if (mgr == null) return 0;
+            return mgr->GetInventoryItemCount(itemId, false, false, false, 0) + mgr->GetInventoryItemCount(itemId, true, false, false, 0);
+        }
+
+        /// <summary>Bag counts, what is still needed (held pre-crafts lower their ingredients) and ready-to-craft. Once a second.</summary>
+        private void RefreshCounts()
+        {
+            if (_rollup == null || (DateTime.Now - _countsAt).TotalSeconds < 1) return;
+            _countsAt = DateTime.Now;
+            var byId = _rollup.ToDictionary(m => m.Id);
+            foreach (var m in _rollup)
             {
-                var r = sheet.GetRow(target.RecipeId);
-                if (r.RowId == 0) continue;
-                var i = r.ItemResult.Value;
-                int invCount = manager != null ? manager->GetInventoryItemCount(i.RowId, false, false, false, 0) : 0;
-                
-                var existing = _cachedRollup.FirstOrDefault(x => x.ItemId == i.RowId && x.Category == "Final");
-                if (existing != null)
+                m.Inv = Bag(m.Id);
+                m.Have = Math.Max(m.Inv, m.Completed);
+                m.Eff = 0;
+            }
+            foreach (var t in _targets)
+                if (byId.TryGetValue((uint)Int(t, "itemId"), out var fm)) fm.Eff += Math.Max(1, Int(t, "quantity", 1));
+            foreach (var m in _rollup.Where(x => x.Cat == "final" && x.Eff == 0)) m.Eff = m.Req;
+
+            foreach (var m in _rollup.Where(x => x.Crafted).OrderByDescending(x => x.Cat == "final" ? 999 : x.Tier))
+            {
+                int toCraft = m.Method == "Buy Finished" ? 0 : Math.Max(0, m.Eff - m.Have);
+                int crafts = (toCraft + m.Yield - 1) / m.Yield;
+                bool ready = toCraft > 0;
+                foreach (var (ing, amt) in m.Ings)
                 {
-                    existing.Amount += target.Amount;
+                    if (byId.TryGetValue(ing, out var im)) im.Eff += amt * crafts;
+                    if (Bag(ing) < amt * crafts) ready = false;
                 }
-                else
-                {
-                    _cachedRollup.Add(new MaterialRollup { ItemId = i.RowId, Amount = target.Amount, Category = "Final", Name = i.Name.ToString() ?? "Unknown", IconId = i.Icon, IconTexture = i.RowId != 0 ? _textureProvider.GetFromGameIcon(new GameIconLookup(i.Icon)) : null, InventoryCount = invCount });
-                }
+                m.Ready = ready;
             }
 
-            foreach (var mat in _cachedRollup)
+            // What the bags hold counts as done on the website too (only ever raised, never lowered).
+            bool dirty = false;
+            foreach (var m in _rollup)
             {
-                if (mat.Category == "Pre-craft" || mat.Category == "Final")
-                {
-                    if (mat.InventoryCount >= mat.Amount)
-                    {
-                        mat.IsReadyToCraft = false;
-                        continue;
-                    }
-                    
-                    if (_recipeIdByResult.TryGetValue(mat.ItemId, out var recId) && recId != 0)
-                    {
-                        var recipe = sheet.GetRow(recId);
-                        int neededRemaining = mat.Amount - mat.InventoryCount;
-                        int craftsNeeded = (int)Math.Ceiling((double)neededRemaining / (recipe.AmountResult > 0 ? recipe.AmountResult : 1));
-                        bool ready = true;
-                        
-                        for (int j = 0; j < recipe.Ingredient.Count; j++)
-                        {
-                            uint ingId = recipe.Ingredient[j].RowId;
-                            int amt = recipe.AmountIngredient[j];
-                            if (ingId != 0 && ingId != uint.MaxValue && amt > 0)
-                            {
-                                int reqTotal = amt * craftsNeeded;
-                                if (GetTotalInventoryItemCount(ingId) < reqTotal)
-                                {
-                                    ready = false;
-                                    break;
-                                }
-                            }
-                        }
-                        mat.IsReadyToCraft = ready;
-                    }
-                }
+                int c = Math.Min(m.Inv, m.Req);
+                if (c > m.Completed && _items[m.Id.ToString()] is JObject o) { o["completed"] = c; m.Completed = c; dirty = true; }
             }
-            }
-            catch (Exception ex)
+            if (dirty && (DateTime.Now - _completedWriteAt).TotalSeconds > 5)
             {
-                // Log exception omitted for version compatibility
-                _cachedRollup = new List<MaterialRollup>();
+                _completedWriteAt = DateTime.Now;
+                var keep = _rollup;
+                WritePipeline(rebuild: false);
+                _rollup = keep;
             }
         }
 
-        private Dictionary<uint, uint>? _recipeIdByResult = null;
-
-        private void InitRecipeCache(Lumina.Excel.ExcelSheet<Recipe> recipeSheet)
+        private void InitRecipeCache()
         {
             if (_recipeIdByResult != null) return;
             _recipeIdByResult = new Dictionary<uint, uint>();
-            foreach (var r in recipeSheet)
-            {
-                if (r.RowId != uint.MaxValue && r.ItemResult.RowId != 0 && r.ItemResult.RowId != uint.MaxValue && !_recipeIdByResult.ContainsKey(r.ItemResult.RowId))
-                {
-                    _recipeIdByResult[r.ItemResult.RowId] = r.RowId;
-                }
-            }
+            foreach (var r in _dataManager.GetExcelSheet<Recipe>())
+                if (r.ItemResult.RowId != 0 && !_recipeIdByResult.ContainsKey(r.ItemResult.RowId)) _recipeIdByResult[r.ItemResult.RowId] = r.RowId;
         }
 
-        private void ProcessRecipe(uint recipeId, int multiplier, Dictionary<uint, int> rawMats, Dictionary<uint, int> precrafts, Dictionary<uint, int> crystals, Lumina.Excel.ExcelSheet<Recipe> recipeSheet)
+        private bool IsVendorItem(uint itemId)
         {
-            InitRecipeCache(recipeSheet);
-            
-            var recipe = recipeSheet.GetRow(recipeId);
-            if (recipe.RowId == 0) return;
-
-            var ingredientIds = new uint[recipe.Ingredient.Count];
-            var ingredientAmts = new int[recipe.Ingredient.Count];
-            var isCrystal = new bool[recipe.Ingredient.Count];
-
-            var itemSheet = _dataManager.GetExcelSheet<Item>();
-
-            for (int i = 0; i < recipe.Ingredient.Count; i++)
+            if (_vendorItems == null)
             {
-                uint ingId = recipe.Ingredient[i].RowId;
-                ingredientIds[i] = ingId;
-                if (ingId != 0 && ingId != uint.MaxValue)
+                _vendorItems = new HashSet<uint>();
+                try
                 {
-                    var item = itemSheet.GetRow(ingId);
-                    isCrystal[i] = item.ItemUICategory.RowId == 59;
+                    foreach (var shop in _dataManager.GetSubrowExcelSheet<GilShopItem>())
+                        foreach (var s in shop) if (s.Item.RowId != 0) _vendorItems.Add(s.Item.RowId);
                 }
-                ingredientAmts[i] = recipe.AmountIngredient[i];
+                catch (Exception ex) { _log.Debug($"[Aetherhold] vendor list failed: {ex.Message}"); }
             }
+            return _vendorItems.Contains(itemId);
+        }
 
-            for (int i = 0; i < ingredientIds.Length; i++)
+        private (string Zone, string Times, int Stars, uint Aetheryte, bool Found) NodeInfo(uint itemId)
+        {
+            string zone = "", times = ""; int stars = 0; bool found = false;
+            var node = GatheringApp.Nodes.FirstOrDefault(n => n.ItemId == itemId);
+            if (node != null)
             {
-                uint ingId = ingredientIds[i];
-                int amt = ingredientAmts[i];
-                if (ingId != 0 && ingId != uint.MaxValue && amt > 0)
+                found = true;
+                zone = node.zone ?? "";
+                if (node.hours != null && node.hours.Count > 0) times = string.Join(", ", node.hours.Select(h => $"{h:00}:00"));
+                stars = node.stats?.stars ?? 0;
+            }
+            var dn = GatheringApp.DataNodesMap.Values.FirstOrDefault(n => (n.items != null && n.items.Contains((int)itemId)) || (n.hiddenItems != null && n.hiddenItems.Contains((int)itemId)));
+            if (dn != null)
+            {
+                found = true;
+                if (zone.Length == 0 && dn.zoneid > 0)
                 {
-                    int totalNeeded = amt * multiplier;
-                    
-                    if (_recipeIdByResult!.TryGetValue(ingId, out var subRecipeId) && subRecipeId != 0)
+                    var place = _dataManager.GetExcelSheet<PlaceName>().GetRowOrDefault((uint)dn.zoneid);
+                    if (place.HasValue) zone = place.Value.Name.ToString();
+                }
+                if (!_aetheryteOf.ContainsKey(itemId) && dn.map > 0)
+                {
+                    var map = _dataManager.GetExcelSheet<Map>().GetRowOrDefault((uint)dn.map);
+                    uint aet = 0;
+                    if (map.HasValue)
                     {
-                        var subRecipe = recipeSheet.GetRow(subRecipeId);
-                        int subAmountResult = subRecipe.AmountResult;
-                        
-                        if (precrafts.ContainsKey(ingId)) precrafts[ingId] += totalNeeded;
-                        else precrafts[ingId] = totalNeeded;
-                        
-                        int craftsNeeded = (int)Math.Ceiling((double)totalNeeded / (subAmountResult > 0 ? subAmountResult : 1));
-                        ProcessRecipe(subRecipeId, craftsNeeded, rawMats, precrafts, crystals, recipeSheet);
+                        var terr = map.Value.TerritoryType.RowId;
+                        var a = _dataManager.GetExcelSheet<Aetheryte>().FirstOrDefault(x => x.IsAetheryte && x.Territory.RowId == terr);
+                        if (a.RowId != 0) aet = a.RowId;
                     }
-                    else if (isCrystal[i])
+                    _aetheryteOf[itemId] = aet;
+                }
+            }
+            return (zone, times, stars, _aetheryteOf.GetValueOrDefault(itemId), found);
+        }
+
+        /// <summary>Rebuilds crafting.pipeline_v2 items from the targets with game data (the website's shape), keeping progress, methods and prices.</summary>
+        private void RebuildItems()
+        {
+            var recipes = _dataManager.GetExcelSheet<Recipe>();
+            var itemSheet = _dataManager.GetExcelSheet<Item>();
+            InitRecipeCache();
+            var acc = new Dictionary<uint, JObject>();
+
+            int Walk(uint itemId, int need, uint recipeId, bool isTarget, int depth)
+            {
+                var item = itemSheet.GetRowOrDefault(itemId);
+                if (!item.HasValue || depth > 12) return 0;
+                if (!acc.TryGetValue(itemId, out var e))
+                {
+                    e = new JObject { ["itemId"] = itemId, ["name"] = item.Value.Name.ToString(), ["icon"] = IconPath(item.Value.Icon), ["quantityRequired"] = 0, ["completed"] = 0, ["tier"] = 0 };
+                    acc[itemId] = e;
+                }
+                e["quantityRequired"] = Int(e, "quantityRequired") + need;
+                if (recipeId == 0 && !isTarget) recipeId = _recipeIdByResult!.GetValueOrDefault(itemId);
+                var r = recipeId != 0 ? recipes.GetRowOrDefault(recipeId) : null;
+                if (r.HasValue && item.Value.ItemUICategory.RowId != 59)
+                {
+                    int yield = Math.Max(1, (int)r.Value.AmountResult);
+                    int crafts = (need + yield - 1) / yield;
+                    var rl = r.Value.RecipeLevelTable.Value;
+                    e["category"] = isTarget ? "final" : "precraft";
+                    e["yield"] = yield; e["isCraftable"] = true; e["job"] = JobOf(r.Value); e["level"] = (int)rl.ClassJobLevel;
+                    var ings = new JArray();
+                    int tier = 0;
+                    for (int i = 0; i < r.Value.Ingredient.Count; i++)
                     {
-                        if (crystals.ContainsKey(ingId)) crystals[ingId] += totalNeeded;
-                        else crystals[ingId] = totalNeeded;
+                        uint ing = r.Value.Ingredient[i].RowId;
+                        int amt = r.Value.AmountIngredient[i];
+                        if (ing == 0 || amt <= 0) continue;
+                        ings.Add(new JObject { ["itemId"] = ing, ["amount"] = amt });
+                        tier = Math.Max(tier, Walk(ing, amt * crafts, 0, false, depth + 1));
                     }
+                    e["ingredients"] = ings;
+                    e["tier"] = Math.Max(Int(e, "tier"), tier + 1);
+                }
+                else if (e["category"] == null)
+                {
+                    if (item.Value.ItemUICategory.RowId == 59) e["category"] = "crystals";
                     else
                     {
-                        if (rawMats.ContainsKey(ingId)) rawMats[ingId] += totalNeeded;
-                        else rawMats[ingId] = totalNeeded;
+                        var node = NodeInfo(itemId);
+                        if (node.Found)
+                        {
+                            e["category"] = node.Times.Length > 0 ? "timed" : "gathering";
+                            if (node.Zone.Length > 0) e["zone"] = node.Zone;
+                            if (node.Times.Length > 0) e["time"] = new JArray(node.Times.Split(", "));
+                            if (node.Stars > 0) e["stars"] = node.Stars;
+                        }
+                        else e["category"] = IsVendorItem(itemId) ? "tomes" : "drops";
                     }
                 }
+                return Int(e, "tier");
             }
+
+            foreach (var t in _targets) Walk((uint)Int(t, "itemId"), Math.Max(1, Int(t, "quantity", 1)), TargetRecipe(t), true, 0);
+
+            var old = _items;
+            var fresh = new JObject();
+            foreach (var (id, e) in acc)
+            {
+                if (old[id.ToString()] is JObject o)
+                {
+                    e["completed"] = Math.Min(Int(o, "completed"), Int(e, "quantityRequired"));
+                    if (o["acquisitionMethod"] is JToken am && am.Type == JTokenType.String) e["acquisitionMethod"] = am;
+                    if (o["unitPrice"] is JToken up && up.Type != JTokenType.Null) e["unitPrice"] = up;
+                }
+                fresh[id.ToString()] = e;
+            }
+            _items = fresh;
+        }
+
+        // =============================================================================================================
+        // Prices (Universalis, in the market the website uses)
+        // =============================================================================================================
+        private async void FetchPrices(List<uint> ids)
+        {
+            if (_isFetchingPrices || ids.Count == 0) return;
+            _isFetchingPrices = true;
+            string scope = ((_sender.GetState(SecScope) as JValue)?.Value as string ?? "").Trim();
+            if (scope.Length == 0) scope = "Europe";
+            try
+            {
+                for (int i = 0; i < ids.Count; i += 50)
+                {
+                    var chunk = ids.Skip(i).Take(50).ToList();
+                    var url = $"https://universalis.app/api/v2/{Uri.EscapeDataString(scope)}/{string.Join(",", chunk)}?listings=0&entries=0";
+                    var res = await _httpClient.GetAsync(url);
+                    if (!res.IsSuccessStatusCode) continue;
+                    var j = JObject.Parse(await res.Content.ReadAsStringAsync());
+                    if (j["items"] is JObject map)
+                    {
+                        foreach (var prop in map.Properties())
+                            if (uint.TryParse(prop.Name, out var id)) _priceCache[id] = Int(prop.Value, "minPrice");
+                    }
+                    else if (chunk.Count == 1) _priceCache[chunk[0]] = Int(j, "minPrice");
+                }
+                _pricesFresh = true;
+            }
+            catch (Exception ex) { _log.Debug($"[Aetherhold] Universalis prices failed: {ex.Message}"); }
+            finally { _isFetchingPrices = false; }
+        }
+
+        /// <summary>Main thread: material prices go into the shared pipeline so the website shows them too.</summary>
+        private void ApplyPrices()
+        {
+            _pricesFresh = false;
+            bool dirty = false;
+            foreach (var prop in _items.Properties())
+            {
+                if (prop.Value is not JObject o || Str(o, "category") == "final" || !uint.TryParse(prop.Name, out var id)) continue;
+                if (_priceCache.TryGetValue(id, out var p) && p > 0 && Int(o, "unitPrice") != p) { o["unitPrice"] = p; dirty = true; }
+            }
+            if (dirty) WritePipeline(rebuild: false);
+            BuildRollup();
         }
     }
 }
-
-
