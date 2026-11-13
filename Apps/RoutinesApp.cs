@@ -1,727 +1,329 @@
 using Dalamud.Bindings.ImGui;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.Threading.Tasks;
 
 namespace XIVHubCompanion.Apps
 {
     public class RoutineTask
     {
         [JsonProperty("id")]
-        public string Id { get; set; }
+        public string Id { get; set; } = "";
         [JsonProperty("type")]
-        public string Type { get; set; }
+        public string Type { get; set; } = "daily";
         [JsonProperty("categoryId")]
-        public string CategoryId { get; set; }
+        public string CategoryId { get; set; } = "";
         [JsonProperty("label")]
-        public string Label { get; set; }
+        public string Label { get; set; } = "";
     }
 
     public class RoutineCategory
     {
-        public string Id { get; set; }
-        public string Label { get; set; }
-        public string Type { get; set; }
+        public string Id { get; set; } = "";
+        public string Label { get; set; } = "";
+        public string Type { get; set; } = "daily";
     }
 
-    public class RoutinesApp : IApp
+    /// <summary>
+    /// Daily and weekly checklist, same as the website's routines page (website/src/components/widgets/Checklist.tsx),
+    /// plus the plugin-only retainer venture cards. Ticks, hidden tasks and custom tasks are shared with the website
+    /// through routines.checklist / routines.hidden / routines.custom, read every frame by token (like Market).
+    /// </summary>
+    public partial class RoutinesApp : IApp
     {
         public string Name => "Routines";
         public string Icon => ((char)Dalamud.Interface.FontAwesomeIcon.ClipboardCheck).ToString();
+        public bool LargeText => true;
         public bool HasSettings => true;
-        public void DrawSettings() 
-        { 
-            ImGui.BeginGroup();
-            var _fs1 = XIVHubCompanion.Tablet.Fonts.Scale(1.1f);
-            
-            ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(Theme.Crystal, "Core Settings");
-            ImGui.Dummy(new Vector2(0, 5));
-            ImGui.Indent(20);
-            
-            bool audioEnabled = _config.RetainerAudioEnabled;
-            if (UIHelper.DrawPremiumSwitchWithText("chk_ret_audio", "Play Audio Alert on Venture Return", ref audioEnabled))
-            {
-                _config.RetainerAudioEnabled = audioEnabled;
-                _config.Save();
-            }
-            
-            if (audioEnabled)
-            {
-                ImGui.Indent(20);
-                bool fireOnce = _config.RetainerAudioFireOnce;
-                if (UIHelper.DrawPremiumSwitchWithText("chk_ret_once", "Fire Only Once", ref fireOnce))
-                {
-                    _config.RetainerAudioFireOnce = fireOnce;
-                    _config.Save();
-                }
-                ImGui.Unindent(20);
-            }
-            ImGui.Unindent(20);
-            
-            _fs1.Dispose();
-            ImGui.EndGroup();
-        }
-        public void Update() { }
 
-        /// <summary>Done and total visible tasks for "daily" or "weekly" (home widget).</summary>
-        public (int Done, int Total) Progress(string type)
-        {
-            var tasks = _defaultTasks.Concat(_customTasks).Where(t => t.Type == type && !_config.RoutinesHiddenTasks.Contains(t.Id)).ToList();
-            return (tasks.Count(t => _config.RoutinesChecklist.TryGetValue(t.Id, out var v) && v), tasks.Count);
-        }
+        private const string SecTicks = "routines.checklist", SecHidden = "routines.hidden", SecCustom = "routines.custom";
 
         private readonly HubClient _sender;
         private readonly Configuration _config;
 
-        private List<RoutineCategory> _categories;
-        private List<RoutineTask> _defaultTasks;
-        private List<RoutineTask> _customTasks = new List<RoutineTask>();
+        // Same lists as website/src/data/routinesData.ts
+        private static readonly List<RoutineCategory> Categories = new()
+        {
+            new() { Id = "daily_roulette", Label = "Duty Roulettes", Type = "daily" },
+            new() { Id = "daily_quests", Label = "Quests & Delivery", Type = "daily" },
+            new() { Id = "daily_gold_saucer", Label = "Gold Saucer", Type = "daily" },
+            new() { Id = "weekly_raids", Label = "Raids & Tomestones", Type = "weekly" },
+            new() { Id = "weekly_quests", Label = "Deliveries & Logs", Type = "weekly" },
+            new() { Id = "weekly_gold_saucer", Label = "Gold Saucer", Type = "weekly" },
+            new() { Id = "custom_daily", Label = "Custom Tasks", Type = "daily" },
+            new() { Id = "custom_weekly", Label = "Custom Tasks", Type = "weekly" },
+        };
 
-        private string _activeTab = "daily";
-        private bool _isEditMode = false;
-        public enum ModalType { None, AddTask, ResetConfirm }
-        private ModalType _activeModal = ModalType.None;
+        private static readonly List<RoutineTask> DefaultTasks = new()
+        {
+            new() { Id = "daily_expert", Type = "daily", CategoryId = "daily_roulette", Label = "Expert Roulette" },
+            new() { Id = "daily_leveling", Type = "daily", CategoryId = "daily_roulette", Label = "Leveling Roulette" },
+            new() { Id = "daily_trials", Type = "daily", CategoryId = "daily_roulette", Label = "Trials Roulette" },
+            new() { Id = "daily_alliance", Type = "daily", CategoryId = "daily_roulette", Label = "Alliance Raid Roulette" },
+            new() { Id = "daily_msq", Type = "daily", CategoryId = "daily_roulette", Label = "Main Scenario Roulette" },
+            new() { Id = "daily_normal_raid", Type = "daily", CategoryId = "daily_roulette", Label = "Normal Raid Roulette" },
+            new() { Id = "daily_frontline", Type = "daily", CategoryId = "daily_roulette", Label = "Frontline Roulette" },
 
-        private string _customTitle = "";
-        private string _customType = "daily";
-        private string _customCategory = "";
+            new() { Id = "daily_beast_tribe", Type = "daily", CategoryId = "daily_quests", Label = "Tribal Quests (0/12)" },
+            new() { Id = "daily_gc_turnin", Type = "daily", CategoryId = "daily_quests", Label = "GC Supply & Provisioning" },
+            new() { Id = "daily_treasure_map", Type = "daily", CategoryId = "daily_quests", Label = "Gather Daily Treasure Map" },
+            new() { Id = "daily_retainer", Type = "daily", CategoryId = "daily_quests", Label = "Retainer Ventures" },
 
-        private string _dailyCountdown = "";
-        private string _dailyLocalTime = "";
-        private string _weeklyCountdown = "";
-        private string _weeklyLocalTime = "";
+            new() { Id = "daily_cactpot", Type = "daily", CategoryId = "daily_gold_saucer", Label = "Mini Cactpot (x3)" },
+
+            new() { Id = "weekly_tome_cap", Type = "weekly", CategoryId = "weekly_raids", Label = "Cap Current Tomestones (450)" },
+            new() { Id = "weekly_savage", Type = "weekly", CategoryId = "weekly_raids", Label = "Current Savage Reclears" },
+            new() { Id = "weekly_alliance_coin", Type = "weekly", CategoryId = "weekly_raids", Label = "Current Alliance Raid Coin" },
+
+            new() { Id = "weekly_deliveries", Type = "weekly", CategoryId = "weekly_quests", Label = "Custom Deliveries (0/12)" },
+            new() { Id = "weekly_tails", Type = "weekly", CategoryId = "weekly_quests", Label = "Wondrous Tails (Khloe)" },
+            new() { Id = "weekly_faux", Type = "weekly", CategoryId = "weekly_quests", Label = "Faux Hollows (Unreal)" },
+            new() { Id = "weekly_doman", Type = "weekly", CategoryId = "weekly_quests", Label = "Doman Enclave Reconstruction" },
+
+            new() { Id = "weekly_jumbo_cactpot", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Jumbo Cactpot" },
+            new() { Id = "weekly_fashion_report", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Fashion Report (80+ pts)" },
+            new() { Id = "weekly_lord_of_verminion", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Lord of Verminion (x5)" },
+        };
+
+        private List<RoutineTask> _custom = new();
 
         public RoutinesApp(HubClient sender, Configuration config)
         {
             _sender = sender;
             _config = config;
-
-            _categories = new List<RoutineCategory>
-            {
-                new RoutineCategory { Id = "daily_roulette", Label = "Duty Roulettes", Type = "daily" },
-                new RoutineCategory { Id = "daily_quests", Label = "Quests & Delivery", Type = "daily" },
-                new RoutineCategory { Id = "daily_gold_saucer", Label = "Gold Saucer", Type = "daily" },
-                new RoutineCategory { Id = "weekly_raids", Label = "Raids & Tomestones", Type = "weekly" },
-                new RoutineCategory { Id = "weekly_quests", Label = "Deliveries & Logs", Type = "weekly" },
-                new RoutineCategory { Id = "weekly_gold_saucer", Label = "Gold Saucer", Type = "weekly" },
-                new RoutineCategory { Id = "custom_daily", Label = "Custom Tasks", Type = "daily" },
-                new RoutineCategory { Id = "custom_weekly", Label = "Custom Tasks", Type = "weekly" }
-            };
-
-            _defaultTasks = new List<RoutineTask>
-            {
-                new RoutineTask { Id = "daily_expert", Type = "daily", CategoryId = "daily_roulette", Label = "Expert Roulette" },
-                new RoutineTask { Id = "daily_leveling", Type = "daily", CategoryId = "daily_roulette", Label = "Leveling Roulette" },
-                new RoutineTask { Id = "daily_trials", Type = "daily", CategoryId = "daily_roulette", Label = "Trials Roulette" },
-                new RoutineTask { Id = "daily_alliance", Type = "daily", CategoryId = "daily_roulette", Label = "Alliance Raid Roulette" },
-                new RoutineTask { Id = "daily_msq", Type = "daily", CategoryId = "daily_roulette", Label = "Main Scenario Roulette" },
-                new RoutineTask { Id = "daily_normal_raid", Type = "daily", CategoryId = "daily_roulette", Label = "Normal Raid Roulette" },
-                new RoutineTask { Id = "daily_frontline", Type = "daily", CategoryId = "daily_roulette", Label = "Frontline Roulette" },
-
-                new RoutineTask { Id = "daily_beast_tribe", Type = "daily", CategoryId = "daily_quests", Label = "Tribal Quests (0/12)" },
-                new RoutineTask { Id = "daily_gc_turnin", Type = "daily", CategoryId = "daily_quests", Label = "GC Supply & Provisioning" },
-                new RoutineTask { Id = "daily_treasure_map", Type = "daily", CategoryId = "daily_quests", Label = "Gather Daily Treasure Map" },
-                new RoutineTask { Id = "daily_retainer", Type = "daily", CategoryId = "daily_quests", Label = "Retainer Ventures" },
-
-                new RoutineTask { Id = "daily_cactpot", Type = "daily", CategoryId = "daily_gold_saucer", Label = "Mini Cactpot (x3)" },
-
-                new RoutineTask { Id = "weekly_tome_cap", Type = "weekly", CategoryId = "weekly_raids", Label = "Cap Current Tomestones (450)" },
-                new RoutineTask { Id = "weekly_savage", Type = "weekly", CategoryId = "weekly_raids", Label = "Current Savage Reclears" },
-                new RoutineTask { Id = "weekly_alliance_coin", Type = "weekly", CategoryId = "weekly_raids", Label = "Current Alliance Raid Coin" },
-
-                new RoutineTask { Id = "weekly_deliveries", Type = "weekly", CategoryId = "weekly_quests", Label = "Custom Deliveries (0/12)" },
-                new RoutineTask { Id = "weekly_tails", Type = "weekly", CategoryId = "weekly_quests", Label = "Wondrous Tails (Khloe)" },
-                new RoutineTask { Id = "weekly_faux", Type = "weekly", CategoryId = "weekly_quests", Label = "Faux Hollows (Unreal)" },
-                new RoutineTask { Id = "weekly_doman", Type = "weekly", CategoryId = "weekly_quests", Label = "Doman Enclave Reconstruction" },
-
-                new RoutineTask { Id = "weekly_jumbo_cactpot", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Jumbo Cactpot" },
-                new RoutineTask { Id = "weekly_fashion_report", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Fashion Report (80+ pts)" },
-                new RoutineTask { Id = "weekly_lord_of_verminion", Type = "weekly", CategoryId = "weekly_gold_saucer", Label = "Lord of Verminion (x5)" }
-            };
-
-            LoadCustomTasks();
-            _sender.StateChanged += OnStateChanged;
+            _config.RoutinesChecklist ??= new();
+            _config.RoutinesHiddenTasks ??= new();
+            _custom = CleanCustom(ParseCustom(_config.RoutinesCustomTasksJson));
         }
 
-        private void LoadCustomTasks()
+        public void Dispose() { }
+
+        public void Update()
         {
-            try
+            SyncIn();
+            CheckLocalResets();
+        }
+
+        // =============================================================================================================
+        // Data
+        // =============================================================================================================
+        private IEnumerable<RoutineTask> All => DefaultTasks.Concat(_custom);
+        private bool Ticked(string id) => _config.RoutinesChecklist.TryGetValue(id, out var v) && v;
+        private bool Hidden(string id) => _config.RoutinesHiddenTasks.Contains(id);
+        private bool IsCustom(string id) => _custom.Any(t => t.Id == id);
+        private static bool KnownCategory(string cat, string type) => Categories.Any(c => c.Id == cat && c.Type == type);
+
+        /// <summary>Done and total visible tasks for "daily" or "weekly" (website rule: hidden tasks never count).</summary>
+        public (int Done, int Total) Progress(string type)
+        {
+            var list = All.Where(t => t.Type == type && !Hidden(t.Id)).ToList();
+            return (list.Count(t => Ticked(t.Id)), list.Count);
+        }
+
+        private static JToken? ParseCustom(string? json)
+        {
+            try { return string.IsNullOrEmpty(json) ? null : JToken.Parse(json); } catch { return null; }
+        }
+
+        /// <summary>Custom tasks as {id, type, categoryId, label}; drop anything malformed (website: cleanCustom).</summary>
+        private static List<RoutineTask> CleanCustom(JToken? t)
+        {
+            var list = new List<RoutineTask>();
+            if (t is not JArray arr) return list;
+            foreach (var o in arr.OfType<JObject>())
             {
-                if (!string.IsNullOrEmpty(_config.RoutinesCustomTasksJson))
-                {
-                    _customTasks = JsonConvert.DeserializeObject<List<RoutineTask>>(_config.RoutinesCustomTasksJson) ?? new List<RoutineTask>();
-                }
+                string? S(string a, string b) => (o[a] ?? o[b]) is JValue { Type: JTokenType.String } v ? (string?)v : null;
+                var id = S("id", "Id"); var type = S("type", "Type"); var label = S("label", "Label");
+                if (id == null || label == null || (type != "daily" && type != "weekly")) continue;
+                list.Add(new RoutineTask { Id = id, Type = type, Label = label, CategoryId = S("categoryId", "CategoryId") ?? $"custom_{type}" });
             }
-            catch { _customTasks = new List<RoutineTask>(); }
+            return list;
         }
 
-        // routines.checklist / routines.hidden / routines.custom: shared with the website through /api/hub/state.
-        // The server resets daily and weekly ticks and pushes the result here.
-        private void OnStateChanged(string section, JToken? value)
+        // =============================================================================================================
+        // Sync with the website. Each section is re-read when HubClient swaps its token (own writes keep the new one).
+        // Config keeps a copy so the list still works signed out.
+        // =============================================================================================================
+        private JToken? _ticksTok, _hiddenTok, _customTok;
+
+        private void SyncIn()
         {
-            try
+            if (!_sender.HasToken || _sender.AuthRejected) return;
+            bool dirty = false;
+            var t = _sender.GetState(SecTicks);
+            if (t != null && !ReferenceEquals(t, _ticksTok))
             {
-                switch (section)
-                {
-                    case "routines.checklist": _config.RoutinesChecklist = value?.ToObject<Dictionary<string, bool>>() ?? new Dictionary<string, bool>(); break;
-                    case "routines.hidden": _config.RoutinesHiddenTasks = value?.ToObject<List<string>>() ?? new List<string>(); break;
-                    case "routines.custom":
-                        _config.RoutinesCustomTasksJson = value?.ToString(Formatting.None) ?? "[]";
-                        LoadCustomTasks();
-                        break;
-                    default: return;
-                }
-                _config.Save();
+                _ticksTok = t;
+                var d = new Dictionary<string, bool>();
+                if (t is JObject o)
+                    foreach (var p in o.Properties())
+                        if (p.Value.Type == JTokenType.Boolean && (bool)p.Value) d[p.Name] = true;
+                _config.RoutinesChecklist = d;
+                dirty = true;
             }
-            catch { }
+            t = _sender.GetState(SecHidden);
+            if (t != null && !ReferenceEquals(t, _hiddenTok))
+            {
+                _hiddenTok = t;
+                _config.RoutinesHiddenTasks = t is JArray a ? a.Where(x => x.Type == JTokenType.String).Select(x => (string)x!).Distinct().ToList() : new();
+                dirty = true;
+            }
+            t = _sender.GetState(SecCustom);
+            if (t != null && !ReferenceEquals(t, _customTok))
+            {
+                _customTok = t;
+                _custom = CleanCustom(t);
+                _config.RoutinesCustomTasksJson = JsonConvert.SerializeObject(_custom);
+                dirty = true;
+            }
+            if (dirty) _config.Save();
         }
 
-        private void SaveAndPushChecklist()
+        private JToken? Write(string section, object value, JToken? old)
         {
             _config.Save();
-            _sender.SetState("routines.checklist", _config.RoutinesChecklist);
+            _sender.SetState(section, value);
+            return _sender.GetState(section) ?? old;
         }
 
-        private void SaveAndPushHidden()
+        private void WriteTicks() => _ticksTok = Write(SecTicks, _config.RoutinesChecklist, _ticksTok);
+        private void WriteHidden() => _hiddenTok = Write(SecHidden, _config.RoutinesHiddenTasks, _hiddenTok);
+        private void WriteCustom()
         {
-            _config.Save();
-            _sender.SetState("routines.hidden", _config.RoutinesHiddenTasks);
+            _config.RoutinesCustomTasksJson = JsonConvert.SerializeObject(_custom);
+            _customTok = Write(SecCustom, _custom, _customTok);
         }
 
-        private void SaveAndPushCustom()
+        // ---- actions (same rules as the website) ---------------------------------------------------------------------
+        private void Toggle(string id)
         {
-            _config.RoutinesCustomTasksJson = JsonConvert.SerializeObject(_customTasks);
-            _config.Save();
-            _sender.SetState("routines.custom", _customTasks);
+            // the website stores only ticked ids
+            if (Ticked(id)) _config.RoutinesChecklist.Remove(id); else _config.RoutinesChecklist[id] = true;
+            WriteTicks();
+        }
+
+        private void ToggleHidden(string id)
+        {
+            if (!_config.RoutinesHiddenTasks.Remove(id)) _config.RoutinesHiddenTasks.Add(id);
+            WriteHidden();
+        }
+
+        private void UnhideAll(string type)
+        {
+            _config.RoutinesHiddenTasks.RemoveAll(id => All.FirstOrDefault(t => t.Id == id)?.Type == type);
+            WriteHidden();
+        }
+
+        private string? TypeOf(string id)
+        {
+            if (id.StartsWith("daily_")) return "daily";
+            if (id.StartsWith("weekly_")) return "weekly";
+            return _custom.FirstOrDefault(t => t.Id == id)?.Type;
         }
 
         private void ResetChecklist(string type)
         {
-            var keysToRemove = new List<string>();
-            var allTasks = new List<RoutineTask>(_defaultTasks);
-            allTasks.AddRange(_customTasks);
-
-            foreach (var kvp in _config.RoutinesChecklist)
-            {
-                var task = allTasks.Find(t => t.Id == kvp.Key);
-                if (task != null && task.Type == type)
-                {
-                    keysToRemove.Add(kvp.Key);
-                }
-            }
-
-            foreach (var key in keysToRemove)
-            {
-                _config.RoutinesChecklist.Remove(key);
-            }
-
-            SaveAndPushChecklist();
+            foreach (var k in _config.RoutinesChecklist.Keys.Where(k => TypeOf(k) == type).ToList()) _config.RoutinesChecklist.Remove(k);
+            WriteTicks();
         }
 
-        private void CheckResets()
+        private void SaveDraft(Draft d)
         {
-            var now = DateTime.UtcNow;
-
-            // Daily Reset 15:00 UTC
-            var nextDaily = now.Date.AddHours(15);
-            if (now >= nextDaily) nextDaily = nextDaily.AddDays(1);
-            
-            var diffDaily = nextDaily - now;
-            _dailyCountdown = $"{(int)diffDaily.TotalHours}h {diffDaily.Minutes}m {diffDaily.Seconds}s";
-            _dailyLocalTime = nextDaily.ToLocalTime().ToString("HH:mm");
-
-            long nextDailyTicks = nextDaily.Ticks;
-            long dailyResetThreshold = nextDaily.AddDays(-1).Ticks;
-            if (_config.LastDailyResetTime == 0)
+            var label = d.Label.Trim();
+            if (label.Length > 80) label = label[..80];
+            if (d.Id != null)
             {
-                _config.LastDailyResetTime = nextDailyTicks;
-                _config.Save();
+                var t = _custom.FirstOrDefault(x => x.Id == d.Id);
+                if (t != null) { t.Label = label; t.Type = d.Type; t.CategoryId = d.Category; }
             }
-            else if (_config.LastDailyResetTime < dailyResetThreshold && (!_sender.HasToken || _sender.AuthRejected))
+            else _custom.Add(new RoutineTask { Id = $"custom_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", Type = d.Type, CategoryId = d.Category, Label = label });
+            WriteCustom();
+            _tab = d.Type;
+        }
+
+        private void RemoveCustom(string id)
+        {
+            _custom.RemoveAll(t => t.Id == id);
+            WriteCustom();
+            // the tick and the hidden flag go with it
+            if (_config.RoutinesChecklist.Remove(id)) WriteTicks();
+            if (_config.RoutinesHiddenTasks.Remove(id)) WriteHidden();
+        }
+
+        /// <summary>Swap with the neighbouring custom task of the same category (built-in tasks stay on top).</summary>
+        private void Move(string id, int dir)
+        {
+            int i = _custom.FindIndex(t => t.Id == id);
+            if (i < 0) return;
+            var cat = _custom[i].CategoryId;
+            int j = i + dir;
+            while (j >= 0 && j < _custom.Count && _custom[j].CategoryId != cat) j += dir;
+            if (j < 0 || j >= _custom.Count) return;
+            (_custom[i], _custom[j]) = (_custom[j], _custom[i]);
+            WriteCustom();
+        }
+
+        /// <summary>Signed out, the plugin clears ticks itself at the game resets (signed in, the server does it).</summary>
+        private void CheckLocalResets()
+        {
+            long nextDaily = Resets.NextDaily().Ticks, nextWeekly = Resets.NextWeekly().Ticks;
+            bool local = !_sender.HasToken || _sender.AuthRejected;
+            if (_config.LastDailyResetTime == 0 || _config.LastWeeklyResetTime == 0)
+            {
+                if (_config.LastDailyResetTime == 0) _config.LastDailyResetTime = nextDaily;
+                if (_config.LastWeeklyResetTime == 0) _config.LastWeeklyResetTime = nextWeekly;
+                _config.Save();
+                return;
+            }
+            if (_config.LastDailyResetTime < nextDaily - TimeSpan.TicksPerDay && local)
             {
                 ResetChecklist("daily");
-                _config.LastDailyResetTime = nextDailyTicks;
+                _config.LastDailyResetTime = nextDaily;
                 _config.Save();
             }
-
-            // Weekly Reset Tuesday 08:00 UTC
-            var nextWeekly = now.Date.AddHours(8);
-            int daysUntilTuesday = ((int)DayOfWeek.Tuesday - (int)nextWeekly.DayOfWeek + 7) % 7;
-            if (daysUntilTuesday == 0 && now >= nextWeekly) daysUntilTuesday = 7;
-            nextWeekly = nextWeekly.AddDays(daysUntilTuesday);
-
-            var diffWeekly = nextWeekly - now;
-            _weeklyCountdown = $"{(int)diffWeekly.TotalDays}d {diffWeekly.Hours}h {diffWeekly.Minutes}m";
-            _weeklyLocalTime = nextWeekly.ToLocalTime().ToString("ddd HH:mm");
-
-            long nextWeeklyTicks = nextWeekly.Ticks;
-            long weeklyResetThreshold = nextWeekly.AddDays(-7).Ticks;
-            if (_config.LastWeeklyResetTime == 0)
-            {
-                _config.LastWeeklyResetTime = nextWeeklyTicks;
-                _config.Save();
-            }
-            else if (_config.LastWeeklyResetTime < weeklyResetThreshold && (!_sender.HasToken || _sender.AuthRejected))
+            if (_config.LastWeeklyResetTime < nextWeekly - TimeSpan.TicksPerDay * 7 && local)
             {
                 ResetChecklist("weekly");
-                _config.LastWeeklyResetTime = nextWeeklyTicks;
+                _config.LastWeeklyResetTime = nextWeekly;
                 _config.Save();
             }
         }
 
-        public void Draw()
+        // =============================================================================================================
+        // Settings (Settings > Routines)
+        // =============================================================================================================
+        public void DrawSettings()
         {
-            var contentPos = ImGui.GetCursorScreenPos();
-            var contentSize = ImGui.GetContentRegionAvail();
-
-            CheckResets();
-
-            // Custom Top Bar with Toggle
-            var cursorStart = contentPos;
-            var availWidth = contentSize.X;
-            
-            // Draw a subtle background panel for the header
-            var drawList = ImGui.GetWindowDrawList();
-            drawList.AddRectFilled(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(Theme.Night2.With(0.8f)), 12f);
-            drawList.AddRect(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(Theme.Night3.With(0.3f)), 12f);
-
-            ImGui.SetCursorScreenPos(cursorStart + new Vector2(25, 25));
             ImGui.BeginGroup();
-            
-            ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.Tasks).ToString());
-            ImGui.PopFont();
-            
-            ImGui.SameLine(0, 15);
-            var _fs2 = XIVHubCompanion.Tablet.Fonts.Scale(1.5f);
-            ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), _activeTab == "daily" ? "Daily Routines" : "Weekly Routines");
-            _fs2.Dispose();
-            
-            ImGui.Spacing();
-            ImGui.TextColored(Theme.Text2, "RESET IN:");
-            ImGui.SameLine();
-            ImGui.TextColored(Theme.Gold, _activeTab == "daily" ? _dailyCountdown : _weeklyCountdown);
-            
-            ImGui.TextColored(Theme.Text2, "LOCAL TIME:");
-            ImGui.SameLine();
-            ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), _activeTab == "daily" ? _dailyLocalTime : _weeklyLocalTime);
-            
-            ImGui.EndGroup();
-
-            // Right side - Progress Circle and Tab Toggles
-            var allTasks = new List<RoutineTask>(_defaultTasks);
-            allTasks.AddRange(_customTasks);
-
-            var activeTasks = new List<RoutineTask>();
-            foreach(var t in allTasks)
+            using (Tablet.Fonts.Scale(1.1f))
             {
-                if (t.Type == _activeTab && (_isEditMode || !_config.RoutinesHiddenTasks.Contains(t.Id)))
+                ImGui.Dummy(new Vector2(0, 10));
+                ImGui.TextColored(Theme.Crystal, "Retainers");
+                ImGui.Dummy(new Vector2(0, 5));
+                ImGui.Indent(20);
+                bool audio = _config.RetainerAudioEnabled;
+                if (UIHelper.DrawPremiumSwitchWithText("chk_ret_audio", "Play a sound when all ventures are back", ref audio))
                 {
-                    activeTasks.Add(t);
-                }
-            }
-
-            int completed = 0;
-            foreach(var t in activeTasks)
-            {
-                if (_config.RoutinesChecklist.TryGetValue(t.Id, out bool isChecked) && isChecked)
-                {
-                    completed++;
-                }
-            }
-
-            float percent = activeTasks.Count > 0 ? (float)completed / activeTasks.Count : 0f;
-
-            // Progress Circle (Bigger)
-            var circleCenter = cursorStart + new Vector2(availWidth - 240, 55);
-            float radius = 40f;
-            drawList.AddCircle(circleCenter, radius, ImGui.GetColorU32(Theme.Night3.With(0.5f)), 40, 10f);
-            
-            if (percent > 0)
-            {
-                float endAngle = (percent * (float)Math.PI * 2f) - ((float)Math.PI / 2f);
-                float startAngle = -((float)Math.PI / 2f);
-                if (endAngle > startAngle)
-                {
-                    drawList.PathArcTo(circleCenter, radius, startAngle, endAngle, 40);
-                    drawList.PathStroke(ImGui.GetColorU32(Theme.Gold), ImDrawFlags.None, 10f);
-                }
-            }
-
-            // Text inside circle
-            string percentText = $"{Math.Round(percent * 100)}%";
-            var textSize = ImGui.CalcTextSize(percentText);
-            ImGui.SetCursorScreenPos(circleCenter - new Vector2(textSize.X / 2, textSize.Y / 2 + 5));
-            ImGui.TextColored(Theme.Gold, percentText);
-            
-            string fractionText = $"{completed}/{activeTasks.Count}";
-            var fracSize = ImGui.CalcTextSize(fractionText);
-            ImGui.SetCursorScreenPos(circleCenter - new Vector2(fracSize.X / 2, -(textSize.Y / 2 - 5)));
-            var _fs3 = XIVHubCompanion.Tablet.Fonts.Scale(0.8f);
-            ImGui.TextColored(Theme.Text2, fractionText);
-            _fs3.Dispose();
-
-            // Tab Toggles
-            ImGui.SetCursorScreenPos(cursorStart + new Vector2(availWidth - 140, 25));
-            ImGui.BeginGroup();
-            
-            string[] tabs = new string[] { "Daily", "Weekly" };
-            int activeTabIdx = _activeTab == "daily" ? 0 : 1;
-            if (UIHelper.DrawPremiumTabSegment(tabs, ref activeTabIdx, 110))
-            {
-                _activeTab = activeTabIdx == 0 ? "daily" : "weekly";
-            }
-            
-            ImGui.EndGroup();
-
-            // Set cursor below the header
-            ImGui.SetCursorScreenPos(cursorStart + new Vector2(0, 130));
-
-            // Controls
-            ImGui.BeginGroup();
-            
-            Vector4 baseBg = Theme.Night2;
-            Vector4 activeBg = Theme.Crystal;
-            Vector4 textCol = Theme.Text;
-            Vector4 activeTextCol = new Vector4(1f, 1f, 1f, 1f);
-            
-            if (UIHelper.DrawPremiumButton("btn_edit_tasks", ImGui.GetCursorScreenPos(), new Vector2(120, 30), _isEditMode ? "Done Editing" : "Edit Tasks", _isEditMode ? activeBg : baseBg, activeBg, _isEditMode ? activeTextCol : textCol, activeTextCol))
-            {
-                _isEditMode = !_isEditMode;
-            }
-            
-            ImGui.SameLine(0, 15);
-            if (UIHelper.DrawPremiumButton("btn_add_custom", ImGui.GetCursorScreenPos(), new Vector2(120, 30), "Add Custom", baseBg, activeBg, textCol, activeTextCol))
-            {
-                _activeModal = ModalType.AddTask;
-                _customType = _activeTab;
-            }
-            
-            ImGui.SameLine(0, 15);
-            if (UIHelper.DrawPremiumWarningButton("btn_reset_prog", ImGui.GetCursorScreenPos(), new Vector2(130, 30), "Reset Progress"))
-            {
-                _activeModal = ModalType.ResetConfirm;
-            }
-            ImGui.EndGroup();
-
-            ImGui.Spacing(); ImGui.Separator(); ImGui.Spacing();
-
-            // Category Grid - 3 Columns to fill up the free space
-            var catList = new List<RoutineCategory>();
-            foreach(var cat in _categories)
-            {
-                if (cat.Type == _activeTab) catList.Add(cat);
-            }
-            
-            // Only keep categories that have active tasks (or if in edit mode, any tasks)
-            var validCatList = new List<RoutineCategory>();
-            foreach (var cat in catList)
-            {
-                if (activeTasks.Exists(t => t.CategoryId == cat.Id) || (_isEditMode && allTasks.Exists(t => t.CategoryId == cat.Id && t.Type == _activeTab)))
-                {
-                    validCatList.Add(cat);
-                }
-            }
-
-            if (validCatList.Count > 0)
-            {
-                ImGui.Columns(3, "CategoryGrid", false);
-
-                for (int i = 0; i < validCatList.Count; i++)
-                {
-                    var cat = validCatList[i];
-                    var catTasks = allTasks.FindAll(t => t.CategoryId == cat.Id && t.Type == _activeTab);
-                    if (!_isEditMode) catTasks = activeTasks.FindAll(t => t.CategoryId == cat.Id);
-
-                    if (catTasks.Count == 0) continue;
-
-                    UIHelper.BeginSmoothChild($"CatChild_{cat.Id}", new Vector2(0, catTasks.Count * 35 + 40), true, ImGuiWindowFlags.NoScrollbar);
-                    
-                    ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                    ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.ListUl).ToString());
-                    ImGui.PopFont();
-                    ImGui.SameLine();
-                    ImGui.TextColored(Theme.Gold, cat.Label.ToUpper());
-                    
-                    ImGui.Spacing();
-
-                    foreach(var task in catTasks)
-                    {
-                        bool isHidden = _config.RoutinesHiddenTasks.Contains(task.Id);
-                        bool isChecked = false;
-                        _config.RoutinesChecklist.TryGetValue(task.Id, out isChecked);
-
-                        if (_isEditMode)
-                        {
-                            ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                            bool show = !isHidden;
-                            
-                            // Use Eye icons
-                            string icon = show ? ((char)Dalamud.Interface.FontAwesomeIcon.Eye).ToString() : ((char)Dalamud.Interface.FontAwesomeIcon.EyeSlash).ToString();
-                            if (!show) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
-                            else ImGui.PushStyleColor(ImGuiCol.Text, Theme.Crystal);
-                            
-                            if (ImGui.Button($"{icon}###toggle_{task.Id}", new Vector2(24, 24)))
-                            {
-                                if (show) _config.RoutinesHiddenTasks.Add(task.Id);
-                                else _config.RoutinesHiddenTasks.Remove(task.Id);
-                                SaveAndPushHidden();
-                            }
-                            ImGui.PopStyleColor();
-                            ImGui.PopFont();
-                            
-                            ImGui.SameLine();
-                            if (isHidden) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
-                            ImGui.AlignTextToFramePadding();
-                            ImGui.Text(task.Label);
-                            if (isHidden) ImGui.PopStyleColor();
-                            
-                            if (task.Id.StartsWith("custom_"))
-                            {
-                                ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30);
-                                ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Gold);
-                                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0));
-                                if (ImGui.Button($"{((char)Dalamud.Interface.FontAwesomeIcon.Trash)}###del_{task.Id}", new Vector2(24, 24)))
-                                {
-                                    _customTasks.RemoveAll(t => t.Id == task.Id);
-                                    SaveAndPushCustom();
-                                }
-                                ImGui.PopStyleColor(2);
-                                ImGui.PopFont();
-                            }
-                        }
-                        else
-                        {
-                            bool wasChecked = isChecked;
-                            ImGui.PushStyleColor(ImGuiCol.CheckMark, Theme.Gold);
-                            if (wasChecked) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
-                            
-                            if (ImGui.Checkbox($"{task.Label}###{task.Id}", ref isChecked))
-                            {
-                                _config.RoutinesChecklist[task.Id] = isChecked;
-                                SaveAndPushChecklist();
-                            }
-                            
-                            if (wasChecked) ImGui.PopStyleColor();
-                            ImGui.PopStyleColor();
-                        }
-                    }
-                    ImGui.EndChild();
-                    ImGui.NextColumn();
-                }
-                ImGui.Columns(1);
-            }
-
-            if (activeTasks.Count == 0 && !_isEditMode)
-            {
-                ImGui.Spacing();
-                ImGui.TextDisabled("No active tasks found. Click 'Edit Tasks' to unhide some, or add a custom task!");
-            }
-
-            DrawRetainers(availWidth);
-
-            DrawModals(contentPos, contentSize);
-        }
-
-        private void DrawModals(Vector2 contentPos, Vector2 contentSize)
-        {
-            bool isAddOpen = _activeModal == ModalType.AddTask;
-            bool isResetOpen = _activeModal == ModalType.ResetConfirm;
-
-            if (UIHelper.BeginPremiumModal("Add Custom Task", ref isAddOpen, contentPos, contentSize, new Vector2(400, 310) * PluginUI.AppScale, out float alphaAdd))
-            {
-                ImGui.TextColored(Theme.Gold.With(1.0f * alphaAdd), "Add Custom Task");
-                ImGui.Separator();
-                ImGui.Spacing();
-                
-                ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Task Name");
-                ImGui.InputText("##TaskName", ref _customTitle, 100);
-                
-                ImGui.Spacing();
-                
-                ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Frequency");
-                if (ImGui.BeginCombo("##Frequency", _customType == "daily" ? "Daily" : "Weekly"))
-                {
-                    if (ImGui.Selectable("Daily", _customType == "daily")) { _customType = "daily"; _customCategory = ""; }
-                    if (ImGui.Selectable("Weekly", _customType == "weekly")) { _customType = "weekly"; _customCategory = ""; }
-                    ImGui.EndCombo();
-                }
-
-                ImGui.Spacing();
-
-                ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Category");
-                var typeCats = _categories.FindAll(c => c.Type == _customType);
-                string catLabel = "Select Category";
-                var selectedCat = typeCats.Find(c => c.Id == _customCategory);
-                if (selectedCat != null) catLabel = selectedCat.Label;
-
-                if (ImGui.BeginCombo("##Category", catLabel))
-                {
-                    foreach (var c in typeCats)
-                    {
-                        if (ImGui.Selectable(c.Label, _customCategory == c.Id)) _customCategory = c.Id;
-                    }
-                    ImGui.EndCombo();
-                }
-
-                ImGui.Spacing(); ImGui.Spacing();
-                
-                float availWidth = ImGui.GetContentRegionAvail().X;
-                ImGui.SetCursorPosX(availWidth - 210 * PluginUI.AppScale); // align right
-                
-                Vector4 btnBg = Theme.Night2.With(alphaAdd);
-                Vector4 btnHover = Theme.Night3.With(alphaAdd);
-                Vector4 btnText = Theme.Text.With(alphaAdd);
-                
-                if (UIHelper.DrawPremiumButton("btn_cancel_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaAdd)))
-                {
-                    isAddOpen = false;
-                }
-                ImGui.SameLine();
-                
-                bool canAdd = !string.IsNullOrEmpty(_customTitle) && !string.IsNullOrEmpty(_customCategory);
-                if (!canAdd) ImGui.BeginDisabled();
-                if (UIHelper.DrawPremiumButton("btn_confirm_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Add Task", Theme.Crystal.With(alphaAdd), new Vector4(0.2f, 0.75f, 1.0f, alphaAdd), new Vector4(1, 1, 1, alphaAdd), new Vector4(1, 1, 1, alphaAdd)))
-                {
-                    var id = $"custom_{Guid.NewGuid().ToString().Substring(0, 8)}";
-                    _customTasks.Add(new RoutineTask { Id = id, Type = _customType, CategoryId = _customCategory, Label = _customTitle });
-                    SaveAndPushCustom();
-                    _customTitle = "";
-                    isAddOpen = false;
-                }
-                if (!canAdd) ImGui.EndDisabled();
-
-                UIHelper.EndPremiumModal();
-            }
-
-            if (!isAddOpen && _activeModal == ModalType.AddTask) _activeModal = ModalType.None;
-
-            if (UIHelper.BeginPremiumModal("Confirm Reset", ref isResetOpen, contentPos, contentSize, new Vector2(400, 210) * PluginUI.AppScale, out float alphaReset))
-            {
-                ImGui.TextColored(Theme.Gold.With(alphaReset), "Confirm Reset");
-                ImGui.Separator();
-                ImGui.Spacing();
-                
-                ImGui.TextColored(new Vector4(1, 1, 1, alphaReset), $"Are you sure you want to reset all {_activeTab} progress?");
-                ImGui.TextColored(Theme.Gold.With(alphaReset), "This action cannot be undone.");
-                
-                ImGui.Spacing(); ImGui.Spacing();
-                
-                float availWidth = ImGui.GetContentRegionAvail().X;
-                ImGui.SetCursorPosX(availWidth - 210 * PluginUI.AppScale);
-                
-                Vector4 btnBg = Theme.Night2.With(alphaReset);
-                Vector4 btnHover = Theme.Night3.With(alphaReset);
-                Vector4 btnText = Theme.Text.With(alphaReset);
-                
-                if (UIHelper.DrawPremiumButton("btn_cancel_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaReset)))
-                {
-                    isResetOpen = false;
-                }
-                ImGui.SameLine();
-                
-                if (UIHelper.DrawPremiumWarningButton("btn_confirm_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Yes, Reset"))
-                {
-                    ResetChecklist(_activeTab);
-                    if (_activeTab == "daily") _config.LastDailyResetTime = DateTime.UtcNow.Ticks;
-                    else _config.LastWeeklyResetTime = DateTime.UtcNow.Ticks;
+                    _config.RetainerAudioEnabled = audio;
                     _config.Save();
-                    isResetOpen = false;
                 }
-                UIHelper.EndPremiumModal();
-            }
-
-            if (!isResetOpen && _activeModal == ModalType.ResetConfirm) _activeModal = ModalType.None;
-        }
-
-        public void Dispose()
-        {
-            _sender.StateChanged -= OnStateChanged;
-        }
-
-        private unsafe void DrawRetainers(float availWidth)
-        {
-            var rm = FFXIVClientStructs.FFXIV.Client.Game.RetainerManager.Instance();
-            if (rm == null) return;
-            
-            // Check active retainers
-            int activeCount = 0;
-            int returnedCount = 0;
-            
-            ImGui.Spacing();
-            ImGui.Spacing();
-            
-            ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.Briefcase).ToString());
-            ImGui.PopFont();
-            ImGui.SameLine();
-            ImGui.TextColored(Theme.Gold, "RETAINER VENTURES");
-            ImGui.SameLine();
-
-            float contentWidth = ImGui.GetContentRegionAvail().X;
-            int columns = (int)(contentWidth / 170);
-            if (columns < 1) columns = 1;
-            
-            if (ImGui.BeginTable("RetainerTable", columns))
-            {
-                for (uint i = 0; i < 10; i++)
+                if (audio)
                 {
-                    var ret = rm->GetRetainerBySortedIndex(i);
-                    if (ret == null) continue;
-                    if (string.IsNullOrEmpty(ret->NameString)) continue;
-                    
-                    activeCount++;
-                    ImGui.TableNextColumn();
-                    
-                    ImGui.BeginGroup();
-                    // Retainer Card Background
-                    Vector2 cursorPos = ImGui.GetCursorScreenPos();
-                    var drawList = ImGui.GetWindowDrawList();
-                    drawList.AddRectFilled(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(Theme.Night1.With(0.8f)), 4f);
-                    drawList.AddRect(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(Theme.Crystal.With(0.23f)), 4f);
-                    
-                    ImGui.SetCursorScreenPos(cursorPos + new Vector2(10, 8));
-                    ImGui.TextColored(Theme.Text, ret->NameString);
-                    
-                    float fullness = Math.Min(1.0f, (float)ret->ItemCount / 175f);
-                    ImGui.SetCursorScreenPos(cursorPos + new Vector2(10, 28));
-                    ImGui.ProgressBar(fullness, new Vector2(140, 6), "");
-                    if (ImGui.IsItemHovered())
+                    ImGui.Indent(20);
+                    bool once = _config.RetainerAudioFireOnce;
+                    if (UIHelper.DrawPremiumSwitchWithText("chk_ret_once", "Only once (off: every minute until you visit a bell)", ref once))
                     {
-                        ImGui.SetTooltip($"Inventory: {ret->ItemCount} / 175");
+                        _config.RetainerAudioFireOnce = once;
+                        _config.Save();
                     }
-                    
-                    ImGui.SetCursorScreenPos(cursorPos + new Vector2(10, 40));
-                    long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                    if (ret->VentureId != 0)
-                    {
-                        long diff = ret->VentureComplete - now;
-                        if (diff <= 0)
-                        {
-                            ImGui.TextColored(Theme.Crystal, "Returned!");
-                            returnedCount++;
-                        }
-                        else
-                        {
-                            var ts = TimeSpan.FromSeconds(diff);
-                            ImGui.TextColored(Theme.Text, $"{ts.Hours:D2}h {ts.Minutes:D2}m {ts.Seconds:D2}s");
-                        }
-                    }
-                    else
-                    {
-                        ImGui.TextColored(Theme.Text2, "No Venture");
-                    }
-                    
-                    ImGui.EndGroup();
-                    ImGui.Dummy(new Vector2(160, 5)); // Spacing below group just in case
+                    ImGui.Unindent(20);
                 }
-                ImGui.EndTable();
+                ImGui.Unindent(20);
             }
+            ImGui.EndGroup();
         }
     }
 }
