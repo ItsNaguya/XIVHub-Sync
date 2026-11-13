@@ -11,7 +11,7 @@ using XIVHubCompanion.Tablet;
 namespace XIVHubCompanion
 {
     // The Settings app (3.0 rebuild): tabs with cut-corner cards in the tablet look, sized with Ui.S and the larger text.
-    // Synced with the website: prefs.tablet (dock, wallpaper, accent; SaveTablet), prefs.theme (the website's dark/light),
+    // Synced with the website: prefs.tablet (dock, wallpaper, accent; SaveTablet),
     // routines.checklist and gathering.alarms (Data & resets, same actions as the website's settings page).
     // Plugin only: tablet size, the sleep view, startup, scrollbars and the per-app switches.
     public partial class PluginUI
@@ -256,17 +256,7 @@ namespace XIVHubCompanion
                         Ui.Text(dl, p + new Vector2(Ui.S(30), (bh - SLH) / 2), label, sel ? Theme.Text : Theme.Text2);
                     }
                     return cy + bh;
-                })) + gap;
-
-            if (configuration.IsVerified)
-            {
-                y = SCard("Website theme", "Dark or light for the Aetherhold website on every device. The tablet itself stays dark.", x, y, w, (cx, cy, cw) =>
-                {
-                    string cur = sender.GetState<string>("prefs.theme") == "light" ? "light" : "dark";
-                    if (SSeg("set_theme", cx, cy, cw, new[] { ("dark", "Dark"), ("light", "Light") }, cur) is { } v) sender.SetState("prefs.theme", v);
-                    return cy + SBtnH;
-                });
-            }
+                }));
             return y;
         }
 
