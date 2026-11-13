@@ -122,34 +122,34 @@ namespace XIVHubCompanion.Apps
         private void DrawFiltersLeft(float width)
         {
             Vector2 p = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, new Vector4(0.2f, 0.2f, 0.2f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, Theme.Night3.With(0.5f));
             
             ImGui.BeginChild("filtersLeftInner", new Vector2(width, 285f * PluginUI.AppScale), false);
             ImGui.SetCursorScreenPos(p + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
             
             float inputWidth = (width - 40f * PluginUI.AppScale) / 2f;
 
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "REQUIRED LEVEL");
+            ImGui.TextColored(Theme.Text2, "REQUIRED LEVEL");
             ImGui.PushItemWidth(inputWidth);
             ImGui.InputText("##rmin", ref _reqLevelMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##rmax", ref _reqLevelMax, 10);
             ImGui.PopItemWidth();
             
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "ITEM LEVEL");
+            ImGui.TextColored(Theme.Text2, "ITEM LEVEL");
             ImGui.PushItemWidth(inputWidth);
             ImGui.InputText("##imin", ref _iLvlMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##imax", ref _iLvlMax, 10);
             ImGui.PopItemWidth();
             
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "RECIPE LEVEL");
+            ImGui.TextColored(Theme.Text2, "RECIPE LEVEL");
             ImGui.PushItemWidth(inputWidth);
             ImGui.InputText("##rlmin", ref _rLvlMin, 10); ImGui.SameLine(); ImGui.Text("-"); ImGui.SameLine(); ImGui.InputText("##rlmax", ref _rLvlMax, 10);
             ImGui.PopItemWidth();
 
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "CRAFTED BY");
+            ImGui.TextColored(Theme.Text2, "CRAFTED BY");
             string[] jobs = { "Any Crafter", "Carpenter", "Blacksmith", "Armorer", "Goldsmith", "Leatherworker", "Weaver", "Alchemist", "Culinarian" };
             int currentComboIndex = _craftedByJob + 1;
             ImGui.PushItemWidth(width - 20f * PluginUI.AppScale);
@@ -180,7 +180,7 @@ namespace XIVHubCompanion.Apps
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
 
             Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawPremiumButton("resetFilters", btnPos, new Vector2(width - 20f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Reset All Filters", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("resetFilters", btnPos, new Vector2(width - 20f * PluginUI.AppScale, 30f * PluginUI.AppScale), "Reset All Filters", Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
             {
                 _reqLevelMin = ""; _reqLevelMax = "";
                 _iLvlMin = ""; _iLvlMax = "";
@@ -199,13 +199,13 @@ namespace XIVHubCompanion.Apps
         private void DrawWornBy(float width)
         {
             Vector2 p = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, new Vector4(0.2f, 0.2f, 0.2f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(width, 285f * PluginUI.AppScale), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, Theme.Night3.With(0.5f));
             
             ImGui.BeginChild("wornByInner", new Vector2(width, 285f * PluginUI.AppScale), false);
             ImGui.SetCursorPosY(10f * PluginUI.AppScale);
             float centerX = ImGui.GetCursorPosX() + width / 2f - 30f * PluginUI.AppScale;
             ImGui.SetCursorPosX(centerX);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "WORN BY");
+            ImGui.TextColored(Theme.Text2, "WORN BY");
             
             ImGui.SetCursorPos(new Vector2(15f * PluginUI.AppScale, 40f * PluginUI.AppScale));
             DrawIconGridRow("Job", _combatJobs, _jobIcons);
@@ -224,7 +224,7 @@ namespace XIVHubCompanion.Apps
         
         private void DrawIconGridRow(string label, string[] jobs, Dictionary<string, uint> ids)
         {
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), label);
+            ImGui.TextColored(Theme.Text, label);
             ImGui.SameLine(70f * PluginUI.AppScale);
             
             float startX = ImGui.GetCursorPosX();
@@ -246,7 +246,7 @@ namespace XIVHubCompanion.Apps
                 
                 bool selected = _selectedJobs.Contains(job);
                 Vector4 bg = selected ? new Vector4(0, 0.8f, 1f, 0.15f) : new Vector4(0, 0, 0, 0);
-                Vector4 border = selected ? new Vector4(0, 0.8f, 1f, 1f) : new Vector4(0.2f, 0.2f, 0.2f, 0.5f);
+                Vector4 border = selected ? new Vector4(0, 0.8f, 1f, 1f) : Theme.Night3.With(0.5f);
                 
                 Vector2 bp = ImGui.GetCursorScreenPos();
                 ImGui.GetWindowDrawList().AddRectFilled(bp, bp + new Vector2(btnSize, btnSize), ImGui.ColorConvertFloat4ToU32(bg), 6f);
@@ -286,14 +286,14 @@ namespace XIVHubCompanion.Apps
             UIHelper.DrawCard(p, new Vector2(totalWidth, cardHeight), new Vector4(0, 0, 0, 0.2f), 8f * PluginUI.AppScale, new Vector4(0.3f, 0.3f, 0.4f, 0.6f));
             
             Vector2 btnPos = p + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale);
-            if (UIHelper.DrawPremiumButton("hideFiltersBtn", btnPos, new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), _showFilters ? "Hide Filters" : "Show Filters", new Vector4(0, 0, 0, 0.3f), new Vector4(0.2f, 0.2f, 0.3f, 0.8f), new Vector4(0.9f, 0.9f, 0.9f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("hideFiltersBtn", btnPos, new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), _showFilters ? "Hide Filters" : "Show Filters", new Vector4(0, 0, 0, 0.3f), new Vector4(0.2f, 0.2f, 0.3f, 0.8f), Theme.Text, Vector4.One))
             {
                 _showFilters = !_showFilters;
             }
             
             ImGui.SetCursorScreenPos(p + new Vector2(totalWidth - 275f * PluginUI.AppScale, 10f * PluginUI.AppScale));
             ImGui.AlignTextToFramePadding();
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Sort by:");
+            ImGui.TextColored(Theme.Text, "Sort by:");
             ImGui.SameLine();
             
             string[] sortModes = { "Relevance", "Name", "Level", "iLvl" };
@@ -334,7 +334,7 @@ namespace XIVHubCompanion.Apps
 
             if (_searchResults.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "Woops, nothing's here. Try adjusting your search or filters.");
+                ImGui.TextColored(Theme.Text3, "Woops, nothing's here. Try adjusting your search or filters.");
                 return;
             }
 
@@ -358,7 +358,7 @@ namespace XIVHubCompanion.Apps
                 float rowHeight = 55f * PluginUI.AppScale;
                 Vector2 rowSize = new Vector2(ImGui.GetContentRegionAvail().X, rowHeight);
                 
-                Vector4 bBorder = new Vector4(0.1f, 0.1f, 0.1f, 0.8f);
+                Vector4 bBorder = Theme.Night1.With(0.8f);
                 if (recipe.RowId != 0) bBorder = new Vector4(0.4f, 0.8f, 0.6f, 0.8f); // #68cfa8 matching
                 
                 UIHelper.DrawCard(p, rowSize, new Vector4(0, 0, 0, 0.3f), 8f * PluginUI.AppScale, bBorder);
@@ -378,11 +378,11 @@ namespace XIVHubCompanion.Apps
                 ImGui.SetCursorScreenPos(p + new Vector2(55f * PluginUI.AppScale, 8f * PluginUI.AppScale));
                 
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), item.Name.ToString());
+                ImGui.TextColored(Theme.Text, item.Name.ToString());
                 
                 // Badges
                 ImGui.Dummy(new Vector2(0, 4f * PluginUI.AppScale));
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), $"Lv {item.LevelEquip} iLvl {item.LevelItem.RowId}");
+                ImGui.TextColored(Theme.Text2, $"Lv {item.LevelEquip} iLvl {item.LevelItem.RowId}");
                 ImGui.EndGroup();
 
                 ImGui.SameLine();
@@ -419,19 +419,19 @@ namespace XIVHubCompanion.Apps
             Vector2 p = ImGui.GetCursorScreenPos();
             Vector2 s = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y);
             
-            UIHelper.DrawCard(p, s, new Vector4(0, 0, 0, 0.3f), 8f * PluginUI.AppScale, new Vector4(0.1f, 0.1f, 0.1f, 0.8f));
+            UIHelper.DrawCard(p, s, new Vector4(0, 0, 0, 0.3f), 8f * PluginUI.AppScale, Theme.Night1.With(0.8f));
             
             ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 15f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Draft Pipeline");
+            ImGui.TextColored(Theme.Text, "Draft Pipeline");
             ImGui.SameLine(s.X - 80f * PluginUI.AppScale);
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), $"{_configuration.CraftingDraftPipeline.Count} items");
+            ImGui.TextColored(Theme.Text3, $"{_configuration.CraftingDraftPipeline.Count} items");
             
             ImGui.SetCursorScreenPos(p + new Vector2(0, 45f * PluginUI.AppScale));
             ImGui.Separator();
             
             ImGui.SetCursorScreenPos(p + new Vector2(15f * PluginUI.AppScale, 60f * PluginUI.AppScale));
             Vector2 btnPos = ImGui.GetCursorScreenPos();
-            if (UIHelper.DrawPremiumButton("sendPipelineBtn", btnPos, new Vector2(s.X - 30f * PluginUI.AppScale, 40f * PluginUI.AppScale), "Send to Pipeline", new Vector4(0.8f, 0.6f, 0.1f, 1f), new Vector4(0.9f, 0.7f, 0.2f, 1f), Vector4.One, Vector4.One))
+            if (UIHelper.DrawPremiumButton("sendPipelineBtn", btnPos, new Vector2(s.X - 30f * PluginUI.AppScale, 40f * PluginUI.AppScale), "Send to Pipeline", Theme.Gold, Theme.Gold, Vector4.One, Vector4.One))
             {
                 foreach (var draft in _configuration.CraftingDraftPipeline)
                 {
@@ -448,7 +448,7 @@ namespace XIVHubCompanion.Apps
             if (_configuration.CraftingDraftPipeline.Count == 0)
             {
                 ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "Your draft is empty.\nSearch for recipes and add\nthem here before sending to pipeline.");
+                ImGui.TextColored(Theme.Text3, "Your draft is empty.\nSearch for recipes and add\nthem here before sending to pipeline.");
             }
             else
             {
@@ -462,17 +462,17 @@ namespace XIVHubCompanion.Apps
                     if (recipe == null || recipe.Value.RowId == 0) continue;
                     
                     Vector2 dp = ImGui.GetCursorScreenPos();
-                    UIHelper.DrawCard(dp, new Vector2(ImGui.GetContentRegionAvail().X, 40f * PluginUI.AppScale), new Vector4(0.1f, 0.1f, 0.1f, 0.5f), 4f * PluginUI.AppScale, new Vector4(0.2f, 0.2f, 0.2f, 0.5f));
+                    UIHelper.DrawCard(dp, new Vector2(ImGui.GetContentRegionAvail().X, 40f * PluginUI.AppScale), Theme.Night1.With(0.5f), 4f * PluginUI.AppScale, Theme.Night3.With(0.5f));
                     
                     ImGui.SetCursorScreenPos(dp + new Vector2(10f * PluginUI.AppScale, 12f * PluginUI.AppScale));
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), recipe.Value.ItemResult.Value.Name.ToString());
+                    ImGui.TextColored(Theme.Text, recipe.Value.ItemResult.Value.Name.ToString());
                     
                     ImGui.SameLine(ImGui.GetContentRegionAvail().X - 80f * PluginUI.AppScale);
-                    ImGui.TextColored(new Vector4(0.6f, 0.8f, 0.9f, 1f), $"x{item.Amount}");
+                    ImGui.TextColored(Theme.Crystal, $"x{item.Amount}");
                     
                     ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30f * PluginUI.AppScale);
                     Vector2 xBtnPos = ImGui.GetCursorScreenPos();
-                    if (UIHelper.DrawPremiumButton("del_" + item.RecipeId, xBtnPos, new Vector2(25f * PluginUI.AppScale, 20f * PluginUI.AppScale), "X", new Vector4(0.83f, 0.69f, 0.22f, 1f), new Vector4(0.93f, 0.79f, 0.32f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("del_" + item.RecipeId, xBtnPos, new Vector2(25f * PluginUI.AppScale, 20f * PluginUI.AppScale), "X", Theme.Gold, Theme.Gold, Vector4.One, Vector4.One))
                     {
                         toRemove.Add(item);
                     }

@@ -14,7 +14,7 @@ namespace XIVHubCompanion.Apps
         {
             ImGui.TextWrapped("Static Raid Planner");
             ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1.0f), "Loot distribution tracking, BIS list verification, and roster management.");
+            ImGui.TextColored(Theme.Text, "Loot distribution tracking, BIS list verification, and roster management.");
             
             ImGui.Spacing(); ImGui.Separator(); ImGui.Spacing();
 

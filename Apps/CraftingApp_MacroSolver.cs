@@ -186,11 +186,11 @@ namespace XIVHubCompanion.Apps
             ImGui.BeginGroup();
             
             // Labels
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Recipe Selection");
+            ImGui.TextColored(Theme.Text2, "Recipe Selection");
             ImGui.SameLine(recipeWidth + 10f * PluginUI.AppScale);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Food");
+            ImGui.TextColored(Theme.Text2, "Food");
             ImGui.SameLine(recipeWidth + foodWidth + 20f * PluginUI.AppScale);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Potion");
+            ImGui.TextColored(Theme.Text2, "Potion");
             
             ImGui.Dummy(new Vector2(0, 2f * PluginUI.AppScale));
             
@@ -278,9 +278,7 @@ namespace XIVHubCompanion.Apps
                     _lastQueuePollTime = DateTime.Now;
                     Task.Run(async () => {
                         try {
-                            using var qclient = new HttpClient();
-                            qclient.Timeout = TimeSpan.FromSeconds(5);
-                            var resStr = await qclient.GetStringAsync("https://xiv.naguya.tech/api/crafting/solve/queue");
+                            var resStr = await _sender.SolverQueueAsync() ?? throw new Exception();
                             using var doc = JsonDocument.Parse(resStr);
                             int running = doc.RootElement.GetProperty("running").GetInt32();
                             int queued = doc.RootElement.GetProperty("queued").GetInt32();
@@ -296,11 +294,11 @@ namespace XIVHubCompanion.Apps
                 
                 Vector2 cPos = ImGui.GetCursorScreenPos() + new Vector2((width - cardWidth) * 0.5f, 0);
                 
-                UIHelper.DrawCard(cPos, new Vector2(cardWidth, 45f * PluginUI.AppScale), new Vector4(0.8f, 0.12f, 0.12f, 0.14f), 4f * PluginUI.AppScale, new Vector4(0.8f, 0.6f, 0.1f, 0.3f));
+                UIHelper.DrawCard(cPos, new Vector2(cardWidth, 45f * PluginUI.AppScale), Theme.Bad.With(0.14f), 4f * PluginUI.AppScale, Theme.Gold.With(0.3f));
                 
                 Vector2 textPos = cPos + new Vector2((cardWidth - textSize.X) * 0.5f, (45f * PluginUI.AppScale - textSize.Y) * 0.5f);
                 ImGui.SetCursorScreenPos(textPos);
-                ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), _queueStatusText);
+                ImGui.TextColored(Theme.Gold, _queueStatusText);
                 
                 ImGui.SetCursorScreenPos(cPos + new Vector2(0, 50f * PluginUI.AppScale));
             }
@@ -314,8 +312,8 @@ namespace XIVHubCompanion.Apps
                 
                 // Sleek premium blue colors
                 Vector4 baseBg = new Vector4(0.12f + 0.05f * pulse, 0.28f + 0.05f * pulse, 0.52f + 0.1f * pulse, 1.0f);
-                Vector4 hoverBg = new Vector4(0.20f, 0.40f, 0.70f, 1.0f);
-                Vector4 textColor = new Vector4(0.9f, 0.95f, 1.0f, 1.0f);
+                Vector4 hoverBg = Theme.CrystalDeep;
+                Vector4 textColor = Theme.Text;
                 Vector4 textHover = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
                 if (UIHelper.DrawPremiumButton("solveBtn", cPos, new Vector2(width, 45f * PluginUI.AppScale), "SOLVE MACRO", baseBg, hoverBg, textColor, textHover))
@@ -327,18 +325,18 @@ namespace XIVHubCompanion.Apps
 
             if (_solveError != null)
             {
-                ImGui.TextColored(new Vector4(0.9f, 0.2f, 0.2f, 1f), _solveError);
+                ImGui.TextColored(Theme.Bad, _solveError);
             }
         }
 
         private void DrawSolverConfig()
         {
             // Crafter Stats Display
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Crafter Stats");
+            ImGui.TextColored(Theme.Text2, "Crafter Stats");
             
             float buttonWidth = 120f * PluginUI.AppScale;
             ImGui.SameLine(ImGui.GetContentRegionAvail().X - buttonWidth);
-            if (UIHelper.DrawPremiumButton("crafterProfilesBtn", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), "\uF013 Edit Profiles", new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+            if (UIHelper.DrawPremiumButton("crafterProfilesBtn", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), "\uF013 Edit Profiles", Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
             {
                 _showCrafterProfilesModal = true;
             }
@@ -360,15 +358,15 @@ namespace XIVHubCompanion.Apps
             int buffedCraft = profile.Craftsmanship + Math.Min(food.CraftMax, (int)(profile.Craftsmanship * food.CraftPct)) + Math.Min(pot.CraftMax, (int)(profile.Craftsmanship * pot.CraftPct));
 
             float statLabelW = 120f * PluginUI.AppScale;
-            ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), "Job Level"); ImGui.SameLine(statLabelW); ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), profile.Level.ToString());
-            ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), "Craftsmanship"); ImGui.SameLine(statLabelW); ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), buffedCraft.ToString());
-            ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), "Control"); ImGui.SameLine(statLabelW); ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), buffedControl.ToString());
-            ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), "CP"); ImGui.SameLine(statLabelW); ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), buffedCp.ToString());
+            ImGui.TextColored(Theme.Text3, "Job Level"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, profile.Level.ToString());
+            ImGui.TextColored(Theme.Text3, "Craftsmanship"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedCraft.ToString());
+            ImGui.TextColored(Theme.Text3, "Control"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedControl.ToString());
+            ImGui.TextColored(Theme.Text3, "CP"); ImGui.SameLine(statLabelW); ImGui.TextColored(Theme.Text, buffedCp.ToString());
 
             ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
 
             // Starting Quality
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Starting Quality");
+            ImGui.TextColored(Theme.Text2, "Starting Quality");
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
             int maxInitQual = _solverMaxQuality / 2;
@@ -386,12 +384,12 @@ namespace XIVHubCompanion.Apps
             if (_solverInitialQuality < 0) _solverInitialQuality = 0;
             
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), $"/ {maxInitQual}");
+            ImGui.TextColored(Theme.Text3, $"/ {maxInitQual}");
 
             ImGui.Dummy(new Vector2(0, 20f * PluginUI.AppScale));
             
             // Solver Settings
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Solver Settings");
+            ImGui.TextColored(Theme.Text2, "Solver Settings");
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
             UIHelper.DrawPremiumCheckboxWithText("##reqQ", "Solution must reach target quality", ref _solverRequireTargetQuality);
@@ -450,17 +448,17 @@ namespace XIVHubCompanion.Apps
                     
                     // Small text label below icon
                     var labelSize = ImGui.CalcTextSize(_jobNamesShort[i]);
-                    drawList.AddText(iconPos + new Vector2(16f * PluginUI.AppScale - labelSize.X/2, 32f * PluginUI.AppScale), isSelected ? ImGui.ColorConvertFloat4ToU32(new Vector4(1f, 0.8f, 0.2f, 1f)) : ImGui.ColorConvertFloat4ToU32(new Vector4(0.5f, 0.5f, 0.5f, 1f)), _jobNamesShort[i]);
+                    drawList.AddText(iconPos + new Vector2(16f * PluginUI.AppScale - labelSize.X/2, 32f * PluginUI.AppScale), isSelected ? ImGui.ColorConvertFloat4ToU32(Theme.Gold) : ImGui.ColorConvertFloat4ToU32(Theme.Text3), _jobNamesShort[i]);
                 }
                 
                 ImGui.Dummy(new Vector2(0, 40f * PluginUI.AppScale));
                 
                 // Selected Stats Area
                 Vector2 statsPos = ImGui.GetCursorScreenPos();
-                UIHelper.DrawCard(statsPos, new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y), new Vector4(0.08f, 0.09f, 0.11f, 1f), 8f * PluginUI.AppScale, new Vector4(0.2f, 0.2f, 0.2f, 1f));
+                UIHelper.DrawCard(statsPos, new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y), new Vector4(0.08f, 0.09f, 0.11f, 1f), 8f * PluginUI.AppScale, Theme.Night3);
                 
                 ImGui.SetCursorScreenPos(statsPos + new Vector2(15f * PluginUI.AppScale, 15f * PluginUI.AppScale));
-                ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), $"{_jobNamesFull[_selectedProfileJobIndex]} Stats");
+                ImGui.TextColored(Theme.Gold, $"{_jobNamesFull[_selectedProfileJobIndex]} Stats");
                 
                 ImGui.SameLine(ImGui.GetWindowWidth() - 120f * PluginUI.AppScale);
                 ImGui.PushFont(UiBuilder.IconFont);
@@ -489,14 +487,14 @@ namespace XIVHubCompanion.Apps
                 float inputW = 160f * PluginUI.AppScale;
                 
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "JOB LEVEL");
+                ImGui.TextColored(Theme.Text2, "JOB LEVEL");
                 ImGui.SetNextItemWidth(inputW);
                 int lvl = profile.Level;
                 if (ImGui.InputInt("##p_lvl", ref lvl, 0)) { profile.Level = lvl; _configuration.Save(); }
                 
                 ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
                 
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "CONTROL");
+                ImGui.TextColored(Theme.Text2, "CONTROL");
                 ImGui.SetNextItemWidth(inputW);
                 int ctrl = profile.Control;
                 if (ImGui.InputInt("##p_ctrl", ref ctrl, 0)) { profile.Control = ctrl; _configuration.Save(); }
@@ -505,14 +503,14 @@ namespace XIVHubCompanion.Apps
                 ImGui.SameLine(190f * PluginUI.AppScale);
                 
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "CRAFTSMANSHIP");
+                ImGui.TextColored(Theme.Text2, "CRAFTSMANSHIP");
                 ImGui.SetNextItemWidth(inputW);
                 int crft = profile.Craftsmanship;
                 if (ImGui.InputInt("##p_crft", ref crft, 0)) { profile.Craftsmanship = crft; _configuration.Save(); }
                 
                 ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
                 
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "CP");
+                ImGui.TextColored(Theme.Text2, "CP");
                 ImGui.SetNextItemWidth(inputW);
                 int cp = profile.Cp;
                 if (ImGui.InputInt("##p_cp", ref cp, 0)) { profile.Cp = cp; _configuration.Save(); }
@@ -524,11 +522,11 @@ namespace XIVHubCompanion.Apps
 
         private void DrawSolverResult()
         {
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Simulation Result");
+            ImGui.TextColored(Theme.Text2, "Simulation Result");
             if (_solveResult != null)
             {
                 ImGui.SameLine(ImGui.GetContentRegionAvail().X - 100f * PluginUI.AppScale);
-                ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.4f, 1f), $"SUCCESS ({_solveResult.step} steps)");
+                ImGui.TextColored(Theme.Live, $"SUCCESS ({_solveResult.step} steps)");
             }
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
 
@@ -554,13 +552,13 @@ namespace XIVHubCompanion.Apps
 
             ImGui.Dummy(new Vector2(0, 15f * PluginUI.AppScale));
 
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Generated Macro");
+            ImGui.TextColored(Theme.Text2, "Generated Macro");
             
             ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
             
             Vector2 pMac = ImGui.GetCursorScreenPos();
             Vector2 mSize = new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y);
-            UIHelper.DrawCard(pMac, mSize, new Vector4(0, 0, 0, 0.4f), 6f * PluginUI.AppScale, new Vector4(0.2f, 0.2f, 0.2f, 1f));
+            UIHelper.DrawCard(pMac, mSize, new Vector4(0, 0, 0, 0.4f), 6f * PluginUI.AppScale, Theme.Night3);
             
             ImGui.SetCursorScreenPos(pMac + new Vector2(10f * PluginUI.AppScale, 10f * PluginUI.AppScale));
             ImGui.BeginChild("macroTextScroll", mSize - new Vector2(20f * PluginUI.AppScale, 20f * PluginUI.AppScale), false);
@@ -568,14 +566,14 @@ namespace XIVHubCompanion.Apps
             var blocks = GenerateMacroBlocks();
             if (blocks.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), "Run simulation to generate action sequence...");
+                ImGui.TextColored(Theme.Text3, "Run simulation to generate action sequence...");
             }
             else
             {
                 for (int i = 0; i < blocks.Count; i++)
                 {
                     string block = blocks[i];
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), $"Macro #{i + 1}");
+                    ImGui.TextColored(Theme.Text2, $"Macro #{i + 1}");
                     
                     float buttonWidth = 100f * PluginUI.AppScale;
                     ImGui.SameLine(ImGui.GetContentRegionAvail().X - buttonWidth - 15f * PluginUI.AppScale);
@@ -585,7 +583,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.PopFont();
                     mcopyTxt += $" Copy #{i + 1}";
                     
-                    if (UIHelper.DrawPremiumButton($"copyMacro{i}", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), mcopyTxt, new Vector4(0.15f, 0.15f, 0.15f, 1f), new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.8f, 0.8f, 0.8f, 1f), Vector4.One))
+                    if (UIHelper.DrawPremiumButton($"copyMacro{i}", ImGui.GetCursorScreenPos() + new Vector2(0, -4f * PluginUI.AppScale), new Vector2(buttonWidth, 24f * PluginUI.AppScale), mcopyTxt, Theme.Night2, Theme.Night3, Theme.Text, Vector4.One))
                     {
                         ImGui.SetClipboardText(block);
                     }
@@ -615,14 +613,14 @@ namespace XIVHubCompanion.Apps
 
         private void DrawProgressBar(string label, int percent, int current, int max, Vector4 color)
         {
-            ImGui.TextColored(new Vector4(0.4f, 0.4f, 0.4f, 1f), label);
+            ImGui.TextColored(Theme.Text3, label);
             ImGui.SameLine(120f * PluginUI.AppScale);
             
             Vector2 p = ImGui.GetCursorScreenPos();
             float w = ImGui.GetContentRegionAvail().X;
             float h = 14f * PluginUI.AppScale; // Sleeker
             
-            ImGui.GetWindowDrawList().AddRectFilled(p, p + new Vector2(w, h), ImGui.ColorConvertFloat4ToU32(new Vector4(0.1f, 0.1f, 0.1f, 0.8f)), 4f);
+            ImGui.GetWindowDrawList().AddRectFilled(p, p + new Vector2(w, h), ImGui.ColorConvertFloat4ToU32(Theme.Night1.With(0.8f)), 4f);
             if (percent > 0)
             {
                 if (percent > 100) percent = 100;
@@ -756,22 +754,11 @@ namespace XIVHubCompanion.Apps
                     }
                 };
 
-                string json = JsonSerializer.Serialize(reqBody);
-                using var client = new HttpClient();
-                client.Timeout = TimeSpan.FromMinutes(10);
-                var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
-                
-                var response = await client.PostAsync("https://xiv.naguya.tech/api/crafting/solve", content);
-                string resJson = await response.Content.ReadAsStringAsync();
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    _solveResult = JsonSerializer.Deserialize<MacroSolveResult>(resJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                }
-                else
-                {
-                    _solveError = $"API Error: {response.StatusCode} - {resJson}";
-                }
+                string? resJson = await _sender.SolveAsync(reqBody);
+                MacroSolveResult? result = null;
+                try { if (resJson != null) result = JsonSerializer.Deserialize<MacroSolveResult>(resJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); } catch { }
+                if (result?.actions != null && result.actions.Count > 0) _solveResult = result;
+                else _solveError = $"Solver error: {resJson ?? "no answer from Aetherhold"}";
             }
             catch (Exception ex)
             {

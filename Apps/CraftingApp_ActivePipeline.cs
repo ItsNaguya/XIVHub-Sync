@@ -36,7 +36,7 @@ namespace XIVHubCompanion.Apps
 
         private Dictionary<uint, int> _priceCache = new();
         private Dictionary<uint, DateTime> _priceCacheTime = new();
-        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient();
+        private static readonly System.Net.Http.HttpClient _httpClient = new System.Net.Http.HttpClient { DefaultRequestHeaders = { { "User-Agent", HubClient.UserAgent } } };
         private bool _isFetchingPrices = false;
         
         private async void FetchPrices(List<uint> itemIds)
@@ -49,7 +49,6 @@ namespace XIVHubCompanion.Apps
             _isFetchingPrices = true;
             try
             {
-                System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Starting fetch for {toFetch.Count} items...\n");
                 string worldName = "Europe"; 
                 for (int i = 0; i < toFetch.Count; i += 5)
                 {
@@ -57,21 +56,16 @@ namespace XIVHubCompanion.Apps
                     string idsStr = string.Join(",", chunk);
                     string url = $"https://universalis.app/api/v2/{worldName}/{idsStr}";
                     
-                    System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Requesting: {url}\n");
                     var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
-                    request.Headers.Add("User-Agent", "XIVHubCompanion/1.0");
 
                     var response = await _httpClient.SendAsync(request);
-                    System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Response Code: {response.StatusCode}\n");
                     if (response.IsSuccessStatusCode)
                     {
                         string json = await response.Content.ReadAsStringAsync();
-                        System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"JSON received, length: {json.Length}\n");
                         var jDoc = System.Text.Json.JsonDocument.Parse(json);
                         
                         if (jDoc.RootElement.TryGetProperty("items", out var itemsElement))
                         {
-                            System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Found 'items' object\n");
                             foreach (var prop in itemsElement.EnumerateObject())
                             {
                                 if (uint.TryParse(prop.Name, out uint id))
@@ -85,7 +79,6 @@ namespace XIVHubCompanion.Apps
                         }
                         else
                         {
-                            System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Did not find 'items' object\n");
                             if (jDoc.RootElement.TryGetProperty("minPrice", out var singleMinPrice) && singleMinPrice.ValueKind == System.Text.Json.JsonValueKind.Number)
                             {
                                 _priceCache[chunk[0]] = singleMinPrice.GetInt32();
@@ -101,14 +94,12 @@ namespace XIVHubCompanion.Apps
                     else
                     {
                         string err = await response.Content.ReadAsStringAsync();
-                        System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Error response: {err}\n");
                     }
                 }
-                System.IO.File.AppendAllText(@"D:\AntiGravity\XIV Hub\universalis_debug.txt", $"Fetch complete. Cache has {_priceCache.Count} items.\n");
             }
             catch (Exception ex)
             {
-                try { System.IO.File.WriteAllText(@"D:\AntiGravity\XIV Hub\universalis_error.txt", ex.ToString()); } catch { }
+                _log.Debug($"[Aetherhold] Universalis prices failed: {ex.Message}");
             }
             finally
             {
@@ -135,7 +126,7 @@ namespace XIVHubCompanion.Apps
             if (_showPipelineCompletedPopup) ImGui.OpenPopup("Pipeline Completed");
             if (ImGui.BeginPopupModal("Pipeline Completed", ref _showPipelineCompletedPopup, ImGuiWindowFlags.AlwaysAutoResize))
             {
-                ImGui.TextColored(new Vector4(0.4f, 1f, 0.4f, 1f), "You have finished crafting all items in the pipeline!");
+                ImGui.TextColored(Theme.Live, "You have finished crafting all items in the pipeline!");
                 ImGui.Dummy(new Vector2(0, 5f * PluginUI.AppScale));
                 ImGui.Text("Would you like to clear the pipeline?");
                 ImGui.Dummy(new Vector2(0, 10f * PluginUI.AppScale));
@@ -149,7 +140,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.CloseCurrentPopup();
                 }
                 ImGui.SameLine();
-                if (UIHelper.DrawPremiumButton("btn_clear_pipe_no", ImGui.GetCursorScreenPos(), new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "No, Keep It", new Vector4(0.12f, 0.12f, 0.14f, 1f), new Vector4(0.2f, 0.2f, 0.22f, 1f), new Vector4(0.7f, 0.7f, 0.7f, 1f), Vector4.One))
+                if (UIHelper.DrawPremiumButton("btn_clear_pipe_no", ImGui.GetCursorScreenPos(), new Vector2(120f * PluginUI.AppScale, 30f * PluginUI.AppScale), "No, Keep It", Theme.Night2, Theme.Night3, Theme.Text2, Vector4.One))
                 {
                     _showPipelineCompletedPopup = false;
                     ImGui.CloseCurrentPopup();
@@ -166,7 +157,7 @@ namespace XIVHubCompanion.Apps
 
             if (_configuration.CraftingActivePipeline.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No active targets.");
+                ImGui.TextColored(Theme.Text3, "No active targets.");
                 return;
             }
 
@@ -202,10 +193,10 @@ namespace XIVHubCompanion.Apps
                     ImGui.SetCursorScreenPos(p + new Vector2(50f * PluginUI.AppScale, 6f * PluginUI.AppScale));
                     
                     ImGui.BeginGroup();
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), item.Name.ToString());
+                    ImGui.TextColored(Theme.Text, item.Name.ToString());
                     if (recipe.Value.CraftType.RowId >= 0 && recipe.Value.CraftType.RowId <= 7)
                     {
-                        ImGui.TextColored(new Vector4(0.6f, 0.8f, 0.9f, 1f), _jobAbbreviations[recipe.Value.CraftType.RowId + 1]);
+                        ImGui.TextColored(Theme.Crystal, _jobAbbreviations[recipe.Value.CraftType.RowId + 1]);
                     }
                     ImGui.EndGroup();
                     
@@ -228,7 +219,7 @@ namespace XIVHubCompanion.Apps
                     }
                     ImGui.SameLine();
                     ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawPremiumButton("##del_" + target.RecipeId, ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", new Vector4(0.12f, 0.12f, 0.14f, 1f), new Vector4(0.83f, 0.69f, 0.22f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("##del_" + target.RecipeId, ImGui.GetCursorScreenPos(), new Vector2(25f * PluginUI.AppScale, 25f * PluginUI.AppScale), "\uF00D", Theme.Night2, Theme.Gold, Vector4.One, Vector4.One))
                     {
                         _configuration.CraftingActivePipeline.RemoveAt(i);
                         i--;
@@ -244,7 +235,7 @@ namespace XIVHubCompanion.Apps
 
             if (pipelineChanged) _cachedRollup = null;
 
-            if (UIHelper.DrawPremiumButton("clearPipe", Vector2.Zero, new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), "Clear Pipeline", new Vector4(0.2f, 0.2f, 0.2f, 1f), new Vector4(0.3f, 0.3f, 0.3f, 1f), Vector4.One, Vector4.One))
+            if (UIHelper.DrawPremiumButton("clearPipe", Vector2.Zero, new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), "Clear Pipeline", Theme.Night3, Theme.Night3, Vector4.One, Vector4.One))
             {
                 _configuration.CraftingActivePipeline.Clear();
                 _configuration.Save();
@@ -393,7 +384,7 @@ namespace XIVHubCompanion.Apps
             drawList.AddRect(p, p + new Vector2(totalWidth, badgeHeight), UIHelper.Vec4ToU32(new Vector4(0.2f, 0.35f, 0.5f, 0.4f)), 6f * PluginUI.AppScale, 0, 1.5f);
             
             // Accent gradient bar on the left
-            drawList.AddRectFilled(p, p + new Vector2(5f * PluginUI.AppScale, badgeHeight), UIHelper.Vec4ToU32(new Vector4(0.4f, 0.8f, 1f, 1f)), 6f * PluginUI.AppScale, ImDrawFlags.RoundCornersLeft);
+            drawList.AddRectFilled(p, p + new Vector2(5f * PluginUI.AppScale, badgeHeight), UIHelper.Vec4ToU32(Theme.Crystal), 6f * PluginUI.AppScale, ImDrawFlags.RoundCornersLeft);
             
             // Subtle separating lines
             drawList.AddLine(p + new Vector2(130f * PluginUI.AppScale, 8f * PluginUI.AppScale), p + new Vector2(130f * PluginUI.AppScale, badgeHeight - 8f * PluginUI.AppScale), UIHelper.Vec4ToU32(new Vector4(1f, 1f, 1f, 0.1f)), 1f);
@@ -401,27 +392,27 @@ namespace XIVHubCompanion.Apps
 
             // Cost Segment
             ImGui.SetCursorScreenPos(p + new Vector2(20f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.55f, 1f), "EST. COST");
+            ImGui.TextColored(Theme.Text3, "EST. COST");
             ImGui.SetCursorScreenPos(p + new Vector2(20f * PluginUI.AppScale, 20f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), $"{totalCost:N0}");
+            ImGui.TextColored(Theme.Bad, $"{totalCost:N0}");
             ImGui.SameLine(0, 2f);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "g");
+            ImGui.TextColored(Theme.Text2, "g");
 
             // Value Segment
             ImGui.SetCursorScreenPos(p + new Vector2(150f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.55f, 1f), "EST. VALUE");
+            ImGui.TextColored(Theme.Text3, "EST. VALUE");
             ImGui.SetCursorScreenPos(p + new Vector2(150f * PluginUI.AppScale, 20f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.9f, 0.7f, 0.2f, 1f), $"{totalValue:N0}");
+            ImGui.TextColored(Theme.Gold, $"{totalValue:N0}");
             ImGui.SameLine(0, 2f);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "g");
+            ImGui.TextColored(Theme.Text2, "g");
 
             // Profit Segment
             ImGui.SetCursorScreenPos(p + new Vector2(280f * PluginUI.AppScale, 6f * PluginUI.AppScale));
-            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.55f, 1f), "PROFIT");
+            ImGui.TextColored(Theme.Text3, "PROFIT");
             ImGui.SetCursorScreenPos(p + new Vector2(280f * PluginUI.AppScale, 20f * PluginUI.AppScale));
             ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.6f, 1f), $"{profit:N0}");
             ImGui.SameLine(0, 2f);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "g");
+            ImGui.TextColored(Theme.Text2, "g");
 
             // Fetch Button perfectly aligned to the right
             Vector2 btnPos = p + new Vector2(totalWidth - 140f * PluginUI.AppScale, 9f * PluginUI.AppScale);
@@ -439,7 +430,7 @@ namespace XIVHubCompanion.Apps
             if (crystals.Count > 0)
             {
                 bool allDone = crystals.All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Crystals", crystals.Count, new Vector4(0.8f, 0.8f, 0.8f, 1f), allDone))
+                if (DrawSectionHeader("Crystals", crystals.Count, Theme.Text, allDone))
                 {
                     DrawCrystalsRow(crystals);
                 }
@@ -459,7 +450,7 @@ namespace XIVHubCompanion.Apps
             if (gatheringByZone.Count > 0)
             {
                 bool allDone = gatheringByZone.SelectMany(g => g).All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Gathering", gatheringByZone.Sum(g => g.Count()), new Vector4(0.2f, 0.4f, 0.8f, 1f), allDone))
+                if (DrawSectionHeader("Gathering", gatheringByZone.Sum(g => g.Count()), Theme.CrystalDeep, allDone))
                 {
                     foreach(var grp in gatheringByZone) DrawGatheringCategory(grp.Key, grp.ToList());
                 }
@@ -469,7 +460,7 @@ namespace XIVHubCompanion.Apps
             if (others.Count > 0)
             {
                 bool allDone = others.All(x => x.InventoryCount >= x.EffectiveAmount);
-                if (DrawSectionHeader("Other Materials", others.Count, new Vector4(0.5f, 0.5f, 0.5f, 1f), allDone))
+                if (DrawSectionHeader("Other Materials", others.Count, Theme.Text3, allDone))
                 {
                     DrawGatheringCategory("", others);
                 }
@@ -534,7 +525,7 @@ namespace XIVHubCompanion.Apps
 
                 // Draw title
                 Vector2 titlePos = p + new Vector2(15f * PluginUI.AppScale, 6f * PluginUI.AppScale);
-                drawList.AddText(titlePos, ImGui.GetColorU32(new Vector4(0.5f, 0.9f, 0.5f, 1f)), title);
+                drawList.AddText(titlePos, ImGui.GetColorU32(Theme.Live), title);
                 
                 // Draw count badge
                 string countText = $"{count} items";
@@ -542,7 +533,7 @@ namespace XIVHubCompanion.Apps
                 var countSize = ImGui.CalcTextSize(countText);
                 Vector2 badgePos = p + new Vector2(15f * PluginUI.AppScale + titleSize.X + 15f * PluginUI.AppScale, 4f * PluginUI.AppScale);
                 drawList.AddRectFilled(badgePos, badgePos + new Vector2(countSize.X + 10f * PluginUI.AppScale, countSize.Y + 4f * PluginUI.AppScale), ImGui.GetColorU32(new Vector4(0.2f, 0.6f, 0.3f, 0.3f)), 10f * PluginUI.AppScale);
-                drawList.AddText(badgePos + new Vector2(5f * PluginUI.AppScale, 2f * PluginUI.AppScale), ImGui.GetColorU32(new Vector4(0.5f, 0.9f, 0.5f, 1f)), countText);
+                drawList.AddText(badgePos + new Vector2(5f * PluginUI.AppScale, 2f * PluginUI.AppScale), ImGui.GetColorU32(Theme.Live), countText);
                 
                 // Draw Checkmark icon
                 ImGui.PushFont(UiBuilder.IconFont);
@@ -593,7 +584,7 @@ namespace XIVHubCompanion.Apps
                 }
                 
                 ImGui.SetCursorScreenPos(p + new Vector2(i * 45f * PluginUI.AppScale, 34f * PluginUI.AppScale));
-                ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), $"x{mat.Amount}");
+                ImGui.TextColored(Theme.Text, $"x{mat.Amount}");
             }
             ImGui.SetCursorScreenPos(p + new Vector2(0, 55f * PluginUI.AppScale));
         }
@@ -602,7 +593,7 @@ namespace XIVHubCompanion.Apps
         {
             if (!string.IsNullOrEmpty(title))
             {
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), title);
+                ImGui.TextColored(Theme.Text2, title);
                 ImGui.Dummy(new Vector2(0, 2f * PluginUI.AppScale));
             }
 
@@ -614,7 +605,7 @@ namespace XIVHubCompanion.Apps
                 float matHeight = 40f * PluginUI.AppScale;
                 Vector2 matSize = new Vector2(ImGui.GetContentRegionAvail().X, matHeight);
                 
-                Vector4 bgCardCol = isDone ? new Vector4(0.05f, 0.15f, 0.08f, 0.5f) : (mat.IsReadyToCraft ? new Vector4(0.1f, 0.25f, 0.3f, 0.6f) : new Vector4(0.12f, 0.12f, 0.15f, 0.8f));
+                Vector4 bgCardCol = isDone ? new Vector4(0.05f, 0.15f, 0.08f, 0.5f) : (mat.IsReadyToCraft ? new Vector4(0.1f, 0.25f, 0.3f, 0.6f) : Theme.Night2.With(0.8f));
                 Vector4 bgBorderCol = isDone ? new Vector4(0.2f, 0.6f, 0.3f, 0.4f) : (mat.IsReadyToCraft ? new Vector4(0.2f, 0.8f, 0.9f, 0.5f) : new Vector4(0.25f, 0.25f, 0.28f, 0.6f));
 
                 ImGui.PushStyleVar(ImGuiStyleVar.Alpha, isDone ? 0.5f : 1f);
@@ -634,11 +625,11 @@ namespace XIVHubCompanion.Apps
                 ImGui.SameLine();
                 ImGui.SetCursorScreenPos(mp + new Vector2(45f * PluginUI.AppScale, 12f * PluginUI.AppScale));
                 
-                ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), mat.Name);
+                ImGui.TextColored(Theme.Text, mat.Name);
                 if (mat.Stars > 0)
                 {
                     ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), new string('\u2605', mat.Stars));
+                    ImGui.TextColored(Theme.Gold, new string('\u2605', mat.Stars));
                 }
 
                 float rightAlign = matSize.X - 250f * PluginUI.AppScale;
@@ -679,7 +670,7 @@ namespace XIVHubCompanion.Apps
                         if (ImGui.IsItemHovered())
                         {
                             UIHelper.BeginTooltip();
-                            ImGui.TextColored(new Vector4(1f, 0.8f, 0f, 1f), "Teleport");
+                            ImGui.TextColored(Theme.Gold, "Teleport");
                             UIHelper.EndTooltip();
                         }
                         currentBtnX += 30f * PluginUI.AppScale;
@@ -690,7 +681,7 @@ namespace XIVHubCompanion.Apps
                 if (mat.Category != "Final")
                 {
                     ImGui.PushFont(UiBuilder.IconFont);
-                    if (UIHelper.DrawPremiumButton("btn_cart_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF07A", new Vector4(0.2f, 0.4f, 0.8f, 1f), new Vector4(0.3f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
+                    if (UIHelper.DrawPremiumButton("btn_cart_" + mat.ItemId, new Vector2(currentBtnX, btnBasePos.Y), new Vector2(24f * PluginUI.AppScale, 24f * PluginUI.AppScale), "\uF07A", Theme.CrystalDeep, new Vector4(0.3f, 0.5f, 0.9f, 1f), Vector4.One, Vector4.One))
                     {
                         MarketApp.OnAddToCart?.Invoke(new CartItem { id = (int)mat.ItemId, name = mat.Name, icon = mat.IconTexture != null ? $"/i/020000/{mat.IconId:000000}.png" : "", quantity = mat.Amount - mat.InventoryCount > 0 ? mat.Amount - mat.InventoryCount : 1, hq = false });
                     }
@@ -698,7 +689,7 @@ namespace XIVHubCompanion.Apps
                     if (ImGui.IsItemHovered())
                     {
                         UIHelper.BeginTooltip();
-                        ImGui.TextColored(new Vector4(0.4f, 0.8f, 1f, 1f), "Send to Shopping Cart");
+                        ImGui.TextColored(Theme.Crystal, "Send to Shopping Cart");
                         UIHelper.EndTooltip();
                     }
                     currentBtnX += 30f * PluginUI.AppScale;
@@ -707,18 +698,18 @@ namespace XIVHubCompanion.Apps
                 if (!string.IsNullOrEmpty(mat.SpawnTimes))
                 {
                     ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), mat.SpawnTimes);
+                    ImGui.TextColored(Theme.Text, mat.SpawnTimes);
                 }
 
                 ImGui.SameLine();
                 ImGui.SetCursorScreenPos(mp + new Vector2(matSize.X - 70f * PluginUI.AppScale, 12f * PluginUI.AppScale));
                 
-                ImGui.TextColored(isDone ? new Vector4(0.5f, 0.9f, 0.5f, 1f) : new Vector4(0.8f, 0.8f, 0.8f, 1f), $"{mat.InventoryCount} / {mat.Amount}");
+                ImGui.TextColored(isDone ? Theme.Live : Theme.Text, $"{mat.InventoryCount} / {mat.Amount}");
                 if (isDone)
                 {
                     ImGui.SameLine();
                     ImGui.PushFont(UiBuilder.IconFont);
-                    ImGui.TextColored(new Vector4(0.3f, 0.9f, 0.3f, 1f), "\uF00C");
+                    ImGui.TextColored(Theme.Live, "\uF00C");
                     ImGui.PopFont();
                 }
 

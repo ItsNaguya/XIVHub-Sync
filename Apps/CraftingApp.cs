@@ -15,7 +15,7 @@ namespace XIVHubCompanion.Apps
         public void DrawSettings() { }
         public void Update() { }
         
-        private readonly DataSender _sender;
+        private readonly HubClient _sender;
         private readonly Configuration _configuration;
         private readonly IDataManager _dataManager;
         private readonly IPluginLog _log;
@@ -23,7 +23,7 @@ namespace XIVHubCompanion.Apps
 
         private int _activeTab = 0; // 0=Add Items, 1=Active Pipeline, 2=Macro Solver
 
-        public CraftingApp(DataSender sender, Configuration configuration, IDataManager dataManager, IPluginLog log, Dalamud.Plugin.Services.ITextureProvider textureProvider)
+        public CraftingApp(HubClient sender, Configuration configuration, IDataManager dataManager, IPluginLog log, Dalamud.Plugin.Services.ITextureProvider textureProvider)
         {
             _sender = sender;
             _configuration = configuration;
@@ -46,7 +46,7 @@ namespace XIVHubCompanion.Apps
             float w = ImGui.GetContentRegionAvail().X;
             Vector2 btnSize = new Vector2(w / 3f - 10f * PluginUI.AppScale, 35f * PluginUI.AppScale);
 
-            Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1f);
+            Vector4 bgNormal = Theme.Night2;
             string[] tabs = new string[] { 
                 "Add Items", 
                 $"Active Pipeline ({_configuration.CraftingActivePipeline.Count})", 

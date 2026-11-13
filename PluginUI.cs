@@ -12,7 +12,7 @@ namespace XIVHubCompanion
     public class PluginUI : IDisposable
     {
         private Configuration configuration;
-        private DataSender sender;
+        private HubClient sender;
         private IDalamudPluginInterface pluginInterface;
         private bool settingsVisible = false;
         private Dalamud.Plugin.Services.IObjectTable _objectTable;
@@ -25,11 +25,8 @@ namespace XIVHubCompanion
         private string _inputToken = "";
         private Dalamud.Plugin.Services.IUnlockState _unlockState;
 
-        private float _dashboardTransition = 0f;
-        private int _activeAppIndex = -1;
         private List<IApp> _apps = new List<IApp>();
         private IApp _selectedApp;
-        private int _selectedCharacterIndex = 0;
         
         private ConstellationBackground _constellation = new ConstellationBackground();
 
@@ -57,7 +54,7 @@ namespace XIVHubCompanion
         public static long ShortestRetainerVentureTime { get; private set; } = 0;
         private static bool _lastRetainerAlarmFired = false;
 
-        public PluginUI(Configuration configuration, DataSender sender, Dalamud.Plugin.Services.IGameGui gameGui, Dalamud.Plugin.Services.IChatGui chatGui, Dalamud.Plugin.Services.IAddonLifecycle addonLifecycle, Dalamud.Plugin.Services.ITextureProvider textureProvider, IDalamudPluginInterface pluginInterface, Dalamud.Plugin.Services.IPluginLog log, Dalamud.Plugin.Services.IObjectTable objectTable, Dalamud.Plugin.Services.IDataManager dataManager, Dalamud.Plugin.Services.IClientState clientState, Dalamud.Plugin.Services.ICommandManager commandManager, Dalamud.Plugin.Services.ICondition condition, Dalamud.Plugin.Services.IUnlockState unlockState)
+        public PluginUI(Configuration configuration, HubClient sender, Dalamud.Plugin.Services.IGameGui gameGui, Dalamud.Plugin.Services.IChatGui chatGui, Dalamud.Plugin.Services.IAddonLifecycle addonLifecycle, Dalamud.Plugin.Services.ITextureProvider textureProvider, IDalamudPluginInterface pluginInterface, Dalamud.Plugin.Services.IPluginLog log, Dalamud.Plugin.Services.IObjectTable objectTable, Dalamud.Plugin.Services.IDataManager dataManager, Dalamud.Plugin.Services.IClientState clientState, Dalamud.Plugin.Services.ICommandManager commandManager, Dalamud.Plugin.Services.ICondition condition, Dalamud.Plugin.Services.IUnlockState unlockState)
         {
             this.configuration = configuration;
             this.sender = sender;
@@ -103,20 +100,22 @@ namespace XIVHubCompanion
             }
         }
 
-        private void DrawPremiumFrame(ImDrawListPtr bgDrawList, Vector2 outerPos, Vector2 outerSize)
+        private void DrawPremiumFrame(ImDrawListPtr dl, Vector2 pos, Vector2 size)
         {
-            uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.1f, 0.95f));
-            uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
-            uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.6f));
-            
-            float rounding = Scaled(16f);
-            
-            bgDrawList.AddRectFilled(outerPos, outerPos + outerSize, darkIron, rounding);
-            bgDrawList.AddRect(outerPos, outerPos + outerSize, edgeHighlight, rounding, 0, Scaled(1.5f));
-            
-            Vector2 topAccentStart = outerPos + new Vector2(Scaled(40), 0);
-            Vector2 topAccentEnd = outerPos + new Vector2(outerSize.X - Scaled(40), 0);
-            bgDrawList.AddLine(topAccentStart, topAccentEnd, ceruleumBlue, Scaled(2f));
+            float r = Scaled(14f);
+            dl.AddRectFilled(pos, pos + size, Theme.Night1.With(0.97f).U32(), r);
+            dl.AddRect(pos, pos + size, Theme.CrystalLine.U32(), r, 0, Scaled(1.2f));
+            dl.AddLine(pos + new Vector2(Scaled(48), 0), pos + new Vector2(size.X - Scaled(48), 0), Theme.Gold.With(0.75f).U32(), Scaled(1.5f));
+        }
+
+        private ISharedImmediateTexture? _mark;
+
+        /// <summary>The Aetherhold crystal mark (embedded images/mark.png).</summary>
+        private void DrawMark(ImDrawListPtr dl, Vector2 min, float size)
+        {
+            _mark ??= _textureProvider.GetFromManifestResource(typeof(PluginUI).Assembly, "Aetherhold.mark.png");
+            var wrap = _mark.GetWrapOrDefault();
+            if (wrap != null) dl.AddImage(wrap.Handle, min, min + new Vector2(size, size));
         }
 
         public void Draw()
@@ -176,15 +175,15 @@ namespace XIVHubCompanion
 
             ImGui.SetNextWindowSize(new Vector2(200, 100), ImGuiCond.Always);
             
-            if (ImGui.Begin("NAGU-PAD Widget", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize))
+            if (ImGui.Begin("Aetherhold Widget###NAGU-PAD Widget", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize))
             {
                 var winPos = ImGui.GetWindowPos();
                 var winSize = ImGui.GetWindowSize();
                 var drawList = ImGui.GetWindowDrawList();
 
-                uint darkIron = UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.1f, 0.95f));
-                uint edgeHighlight = UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
-                uint ceruleumBlue = UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.5f));
+                uint darkIron = Theme.Night1.With(0.97f).U32();
+                uint edgeHighlight = UIHelper.Vec4ToU32(Theme.Crystal.With(0.23f));
+                uint ceruleumBlue = UIHelper.Vec4ToU32(Theme.Crystal.With(0.5f));
                 
                 float rounding = 12f;
                 drawList.AddRectFilled(winPos, winPos + winSize, darkIron, rounding);
@@ -211,7 +210,7 @@ namespace XIVHubCompanion
                     float alpha = 0.5f + 0.5f * (float)((Math.Sin(ImGui.GetTime() * 4.0) + 1.0) / 2.0);
                     ImGui.SetCursorScreenPos(startPos);
                     ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                    ImGui.TextColored(new Vector4(1f, 0.84f, 0f, alpha), ((char)Dalamud.Interface.FontAwesomeIcon.Star).ToString());
+                    ImGui.TextColored(Theme.Gold.With(alpha), ((char)Dalamud.Interface.FontAwesomeIcon.Star).ToString());
                     ImGui.PopFont();
                     
                     ImGui.SameLine(0, 5f);
@@ -238,12 +237,12 @@ namespace XIVHubCompanion
                     ImGui.SetCursorScreenPos(retPos);
                     ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
                     ImGui.SetWindowFontScale(1.1f);
-                    ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, retAlpha), ((char)Dalamud.Interface.FontAwesomeIcon.Briefcase).ToString());
+                    ImGui.TextColored(Theme.Gold.With(retAlpha), ((char)Dalamud.Interface.FontAwesomeIcon.Briefcase).ToString());
                     ImGui.PopFont();
                     ImGui.SetWindowFontScale(1.0f);
                     
                     ImGui.SetCursorScreenPos(retPos + new Vector2(25, -3));
-                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.9f, 0.9f, 0.9f, retAlpha));
+                    ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text.With(retAlpha));
                     ImGui.Text($"{ReturnedRetainersCount}/{ActiveRetainersCount}");
                     ImGui.PopStyleColor();
                     
@@ -257,11 +256,11 @@ namespace XIVHubCompanion
                     ImGui.SetCursorScreenPos(retPos + new Vector2(25, 12));
                     if (timeStr == "Ready!")
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 0.65f, 1.0f, retAlpha)); // Green for Ready
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.Crystal.With(retAlpha)); // Green for Ready
                     }
                     else
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.7f, 0.7f, 0.7f, retAlpha));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text2.With(retAlpha));
                     }
                     ImGui.SetWindowFontScale(0.85f);
                     ImGui.Text(timeStr);
@@ -271,10 +270,10 @@ namespace XIVHubCompanion
 
                 ImGui.SetCursorScreenPos(winPos + new Vector2(80, 30));
                 ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Crystal);
                 ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0,0,0,0));
-                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.0f, 0.65f, 1.0f, 0.2f));
-                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.0f, 0.65f, 1.0f, 0.4f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, Theme.Crystal.With(0.2f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, Theme.Crystal.With(0.4f));
                 ImGui.SetWindowFontScale(1.8f);
                 if (ImGui.Button("\uf065", new Vector2(40, 40)))
                 {
@@ -300,7 +299,7 @@ namespace XIVHubCompanion
                 
                 ImGui.SetCursorScreenPos(winPos + new Vector2(175, 8));
                 ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.65f, 0.7f, 1.0f));
+                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text2);
                 ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0,0,0,0));
                 ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(1,1,1,0.1f));
                 ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(1,1,1,0.2f));
@@ -347,8 +346,9 @@ namespace XIVHubCompanion
             Vector2 windowSize = new Vector2(1010 * AppScale, 770 * AppScale);
             ImGui.SetNextWindowSize(windowSize, ImGuiCond.Always);
             
-            if (ImGui.Begin("NAGU-PAD Premium Tablet", ref settingsVisible, ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize))
+            if (ImGui.Begin("Aetherhold###NAGU-PAD Premium Tablet", ref settingsVisible, ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize))
             {
+                Theme.Push();
                 bool isVerifiedFrame = _isVerified;
                 ImGui.SetWindowFontScale(AppScale);
 
@@ -398,28 +398,29 @@ namespace XIVHubCompanion
 
                 DrawPremiumFrame(drawList, winPos, winSize);
 
-                drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0.02f, 0.03f, 0.05f, 1.0f)), 4f);
-                drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0.04f, 0.05f, 0.08f, 0.95f)), 0f);
+                drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(Theme.Night0), 4f);
+                drawList.AddRectFilled(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(Theme.Night1.With(0.95f)), 0f);
 
                 _constellation.Draw(contentPos, contentSize, this.configuration.HideBackgroundAnimation, this.configuration.HideScanline);
-                drawList.AddRect(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(new Vector4(0f, 0.6f, 1f, 0.1f)), 0f, 0, 1f);
+                drawList.AddRect(contentPos, contentPos + contentSize, UIHelper.Vec4ToU32(Theme.Crystal.With(0.1f)), 0f, 0, 1f);
 
                 ImGui.SetCursorPos(new Vector2(0, 0));
                 ImGui.InvisibleButton("TitleBarDrag", new Vector2(winSize.X, Scaled(25f)));
 
-                string displayTitle = "NAGU PAD (XIV HUB COMPANION)";
-                if (sender.CurrentUserRole == "admin") displayTitle = "NAGU PAD (XIV HUB COMPANION) - Admin";
-                else if (sender.CurrentUserRole == "friend") displayTitle = "NAGU PAD (XIV HUB COMPANION) - Friends";
-                
+                string role = sender.CurrentUserRole switch { "admin" => "  ·  ADMIN", "friend" => "  ·  FRIEND", _ => "" };
                 ImGui.SetWindowFontScale(0.85f * AppScale);
-                var titleTextSize = ImGui.CalcTextSize(displayTitle);
-                ImGui.SetCursorScreenPos(winPos + new Vector2(winSize.X / 2 - titleTextSize.X / 2, Scaled(12f) - titleTextSize.Y / 2));
-                ImGui.TextColored(new Vector4(0.8f, 0.85f, 0.9f, 1.0f), displayTitle);
+                var headSize = ImGui.CalcTextSize("AETHERHOLD" + role);
+                float markSize = Scaled(16f);
+                var titlePos = winPos + new Vector2(winSize.X / 2 - (headSize.X + markSize + Scaled(6f)) / 2, Scaled(12f) - headSize.Y / 2);
+                DrawMark(drawList, titlePos + new Vector2(0, (headSize.Y - markSize) / 2), markSize);
+                ImGui.SetCursorScreenPos(titlePos + new Vector2(markSize + Scaled(6f), 0));
+                ImGui.TextColored(Theme.Gold, "AETHERHOLD");
+                if (role != "") { ImGui.SameLine(0, 0); ImGui.TextColored(Theme.Text3, role); }
                 ImGui.SetWindowFontScale(AppScale);
-                
-                Vector4 baseIconColor = new Vector4(0.6f, 0.65f, 0.7f, 1.0f);
-                Vector4 closeHoverColor = new Vector4(0.83f, 0.69f, 0.22f, 1.0f);
-                Vector4 minimizeHoverColor = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
+
+                Vector4 baseIconColor = Theme.Text2;
+                Vector4 closeHoverColor = Theme.Gold;
+                Vector4 minimizeHoverColor = Theme.Crystal;
                 
                 if (DrawHardwareButton(drawList, "CloseBtn", winPos + new Vector2(winSize.X - Scaled(23f), Scaled(75f)), Scaled(new Vector2(21, 35)), "\uf00d", baseIconColor, closeHoverColor))
                 {
@@ -438,7 +439,7 @@ namespace XIVHubCompanion
                     ImGui.BeginDisabled(true);
                 }
 
-                drawList.AddLine(contentPos + new Vector2(sidebarWidth, 0), contentPos + new Vector2(sidebarWidth, contentSize.Y), UIHelper.Vec4ToU32(new Vector4(1, 1, 1, 0.05f)));
+                drawList.AddLine(contentPos + new Vector2(sidebarWidth, 0), contentPos + new Vector2(sidebarWidth, contentSize.Y), Theme.CrystalLine.U32());
                 
                 ImGui.SetCursorPos(Scaled(new Vector2(25, 30)));
                 float availableHeight = contentSize.Y - Scaled(40f);
@@ -471,8 +472,8 @@ namespace XIVHubCompanion
 
                 Vector2 rightPanePos = contentPos + new Vector2(sidebarWidth, 0);
                 Vector2 rightPaneSize = new Vector2(contentSize.X - sidebarWidth, contentSize.Y);
-                drawList.AddRectFilled(rightPanePos, rightPanePos + rightPaneSize, UIHelper.Vec4ToU32(new Vector4(1, 1, 1, 0.03f)), Scaled(4f), ImDrawFlags.RoundCornersRight);
-                drawList.AddRect(rightPanePos, rightPanePos + rightPaneSize, UIHelper.Vec4ToU32(new Vector4(1, 1, 1, 0.05f)), Scaled(4f), ImDrawFlags.RoundCornersRight, 1.5f);
+                drawList.AddRectFilled(rightPanePos, rightPanePos + rightPaneSize, Theme.Night2.With(0.35f).U32(), Scaled(4f), ImDrawFlags.RoundCornersRight);
+                drawList.AddRect(rightPanePos, rightPanePos + rightPaneSize, Theme.CrystalLine.U32(), Scaled(4f), ImDrawFlags.RoundCornersRight, 1.2f);
 
                 ImGui.SetCursorPos(new Vector2(Scaled(25f) + sidebarWidth + Scaled(20f), Scaled(25f))); 
                 UIHelper.BeginSmoothChild("MainContent", new Vector2(contentSize.X - sidebarWidth - Scaled(40f), contentSize.Y - Scaled(35f)), false, mainFlags);
@@ -501,11 +502,11 @@ namespace XIVHubCompanion
                 {
                     ImGui.SetCursorScreenPos(contentPos);
                     ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, Scaled(16f));
-                    ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.05f, 0.05f, 0.05f, 0.92f));
+                    ImGui.PushStyleColor(ImGuiCol.ChildBg, Theme.Night0.With(0.92f));
                     ImGui.BeginChild("UnverifiedOverlay", contentSize, false, ImGuiWindowFlags.NoScrollbar);
                     
                     float blink = (float)(Math.Sin(ImGui.GetTime() * 6.0) * 0.5 + 0.5);
-                    Vector4 redColor = new Vector4(0.83f, 0.69f, 0.22f, 0.5f + blink * 0.5f);
+                    Vector4 redColor = Theme.Gold.With(0.5f + blink * 0.5f);
                     
                     string alertTitle = "UNVERIFIED USER";
                     var titleSize = ImGui.CalcTextSize(alertTitle);
@@ -515,32 +516,32 @@ namespace XIVHubCompanion
                     ImGui.TextColored(redColor, alertTitle);
                     ImGui.SetWindowFontScale(1.0f);
                     
-                    string alertMsg1 = "To connect this plugin to your XIV Hub account, you need a character token.";
+                    string alertMsg1 = "To connect this plugin to Aetherhold, you need your character's plugin token.";
                     string alertMsg2 = "Click the button below to get your token from the website settings page.";
                     
                     var msg1Size = ImGui.CalcTextSize(alertMsg1);
                     var msg2Size = ImGui.CalcTextSize(alertMsg2);
                     
                     ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - msg1Size.X / 2, contentSize.Y / 2 - Scaled(50f)));
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), alertMsg1);
+                    ImGui.TextColored(Theme.Text2, alertMsg1);
                     
                     ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - msg2Size.X / 2, contentSize.Y / 2 - Scaled(30f)));
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), alertMsg2);
+                    ImGui.TextColored(Theme.Text2, alertMsg2);
 
-                    Vector4 webBtnBg = new Vector4(0.15f, 0.35f, 0.6f, 1.0f);
-                    Vector4 webBtnHover = new Vector4(0.2f, 0.45f, 0.7f, 1.0f);
+                    Vector4 webBtnBg = Theme.CrystalDeep;
+                    Vector4 webBtnHover = Theme.CrystalDeep;
                     Vector4 webBtnText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                     Vector4 webBtnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
                     if (UIHelper.DrawPremiumButton("btn_open_website", contentPos + new Vector2(contentSize.X / 2 - Scaled(125f), contentSize.Y / 2), new Vector2(Scaled(250f), Scaled(40f)), "Get Token from Website", webBtnBg, webBtnHover, webBtnText, webBtnHoverText))
                     {
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://xiv.naguya.tech/settings") { UseShellExecute = true });
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(HubClient.BaseUrl + "/settings") { UseShellExecute = true });
                     }
 
                     if (!string.IsNullOrEmpty(_errorMessage)) {
                         var errSize = ImGui.CalcTextSize(_errorMessage);
                         ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - errSize.X / 2, contentSize.Y / 2 + Scaled(55f)));
-                        ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, 1.0f), _errorMessage);
+                        ImGui.TextColored(Theme.Gold, _errorMessage);
                     }
 
                     ImGui.SetCursorScreenPos(contentPos + new Vector2(contentSize.X / 2 - Scaled(150f), contentSize.Y / 2 + Scaled(85f)));
@@ -551,9 +552,9 @@ namespace XIVHubCompanion
                         UIHelper.DrawTooltip("Paste your unique character token from the website here.");
                     }
 
-                    Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-                    Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-                    Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+                    Vector4 btnBg = Theme.Night2;
+                    Vector4 btnHover = Theme.Crystal;
+                    Vector4 btnText = Theme.Text;
                     Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
                     if (UIHelper.DrawPremiumButton("btn_submit_token", contentPos + new Vector2(contentSize.X / 2 - Scaled(75f), contentSize.Y / 2 + Scaled(125f)), new Vector2(Scaled(150f), Scaled(40f)), "Verify Token", btnBg, btnHover, btnText, btnHoverText))
@@ -589,6 +590,7 @@ namespace XIVHubCompanion
                 }
 
 
+                Theme.Pop();
             }
             ImGui.End();
 
@@ -612,7 +614,7 @@ namespace XIVHubCompanion
             Vector2 btnStart = pos + new Vector2(pressOffset, 0);
             Vector2 btnEnd = pos + size + new Vector2(pressOffset, 0);
 
-            Vector4 gunmetal = new Vector4(0.17f, 0.17f, 0.19f, 1.0f);
+            Vector4 gunmetal = Theme.Night2;
             Vector4 currentBg = UIHelper.LerpColor(gunmetal, hoverColor, hoverState * 0.25f);
             
             drawList.AddRectFilled(btnStart, btnEnd, UIHelper.Vec4ToU32(currentBg), 2f);
@@ -631,6 +633,9 @@ namespace XIVHubCompanion
             return isClicked;
         }
 
+        /// <summary>Never show the whole token on screen (streams, screenshots).</summary>
+        private static string TokenHint(string token) => string.IsNullOrEmpty(token) || token.Length < 8 ? "set" : $"{token[..3]}…{token[^4..]}";
+
         private float RenderSidebarIcon(string name, string icon, bool isSelected, Action onClick)
         {
             ImGui.SetCursorPosX(Scaled(15f));
@@ -645,19 +650,19 @@ namespace XIVHubCompanion
             float hoverState = UIHelper.GetHoverState(id, isHovered, 12.0f);
             var drawList = ImGui.GetWindowDrawList();
 
-            Vector4 baseBg = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 0.15f) : new Vector4(1, 1, 1, 0.0f);
-            Vector4 hoverBg = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 0.25f) : new Vector4(1, 1, 1, 0.05f);
+            Vector4 baseBg = isSelected ? Theme.Crystal.With(0.15f) : new Vector4(1, 1, 1, 0.0f);
+            Vector4 hoverBg = isSelected ? Theme.Crystal.With(0.25f) : new Vector4(1, 1, 1, 0.05f);
             Vector4 currentBg = UIHelper.LerpColor(baseBg, hoverBg, hoverState);
             
             drawList.AddRectFilled(cursorPos, cursorPos + size, UIHelper.Vec4ToU32(currentBg), Scaled(12f));
 
             if (isSelected)
             {
-                drawList.AddRectFilled(cursorPos + new Vector2(-Scaled(10f), Scaled(10f)), cursorPos + new Vector2(-Scaled(7f), size.Y - Scaled(10f)), UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f)), Scaled(2f));
+                drawList.AddRectFilled(cursorPos + new Vector2(-Scaled(10f), Scaled(10f)), cursorPos + new Vector2(-Scaled(7f), size.Y - Scaled(10f)), UIHelper.Vec4ToU32(Theme.Crystal), Scaled(2f));
             }
 
-            Vector4 baseText = isSelected ? new Vector4(0.0f, 0.65f, 1.0f, 1.0f) : new Vector4(0.6f, 0.65f, 0.7f, 1.0f);
-            Vector4 hoverText = isSelected ? new Vector4(0.3f, 0.8f, 1.0f, 1.0f) : new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 baseText = isSelected ? Theme.Crystal : Theme.Text2;
+            Vector4 hoverText = isSelected ? Theme.Crystal : Theme.Text;
             Vector4 currentText = UIHelper.LerpColor(baseText, hoverText, hoverState);
 
             float baseScale = isSelected ? 1.4f : 1.2f;
@@ -697,7 +702,7 @@ namespace XIVHubCompanion
                     ImGui.SetWindowFontScale(1.1f);
                     
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Tablet Size");
+                    ImGui.TextColored(Theme.Crystal, "Tablet Size");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     int currentSize = this.configuration.TabletSize;
@@ -709,7 +714,7 @@ namespace XIVHubCompanion
                     }
                     
                     ImGui.Dummy(new Vector2(0, 15));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Appearance");
+                    ImGui.TextColored(Theme.Crystal, "Appearance");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     bool hideAnim = this.configuration.HideBackgroundAnimation;
@@ -734,7 +739,7 @@ namespace XIVHubCompanion
                     }
 
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Widget Overlays");
+                    ImGui.TextColored(Theme.Crystal, "Widget Overlays");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     bool showOverlay = this.configuration.ShowMinimizedOverlay;
@@ -786,7 +791,7 @@ namespace XIVHubCompanion
                     }
 
                     ImGui.Dummy(new Vector2(0, 15));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "XIV Hub Identity");
+                    ImGui.TextColored(Theme.Crystal, "Aetherhold account");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     if (this.configuration.IsVerified)
@@ -795,17 +800,17 @@ namespace XIVHubCompanion
                         if (sender.CurrentUserRole == "admin") roleDisplay = " [Admin]";
                         else if (sender.CurrentUserRole == "friend") roleDisplay = " [Friend]";
                         
-                        ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), $"✓ Verified{roleDisplay} (Token: {this.configuration.XivHubId})");
+                        ImGui.TextColored(Theme.Crystal, $"✓ Verified{roleDisplay} (token {TokenHint(this.configuration.XivHubId)})");
                     }
                     else
                     {
-                        ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, 1.0f), "✗ Unverified");
+                        ImGui.TextColored(Theme.Gold, "✗ Unverified");
                     }
                     
                     ImGui.Dummy(new Vector2(0, 5));
-                    Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-                    Vector4 btnHover = new Vector4(0.9f, 0.8f, 0.0f, 1.0f);
-                    Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+                    Vector4 btnBg = Theme.Night2;
+                    Vector4 btnHover = Theme.Gold;
+                    Vector4 btnText = Theme.Text;
                     Vector4 btnHoverText = new Vector4(0.0f, 0.0f, 0.0f, 1.0f);
                     
                     if (UIHelper.DrawPremiumButton("btn_unlink", ImGui.GetCursorScreenPos(), new Vector2(250, 40), "Re-enter Token / Unlink", btnBg, btnHover, btnText, btnHoverText))
@@ -829,7 +834,7 @@ namespace XIVHubCompanion
                     ImGui.SetWindowFontScale(1.1f);
                     
                     ImGui.Dummy(new Vector2(0, 10));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Synchronization Engine");
+                    ImGui.TextColored(Theme.Crystal, "Synchronization Engine");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     var enabled = this.configuration.IsSyncEnabled;
@@ -840,28 +845,28 @@ namespace XIVHubCompanion
                     }
                     
                     ImGui.Dummy(new Vector2(0, 5));
-                    ImGui.TextWrapped("When enabled, this plugin acts as a silent companion, automatically pushing your character data, inventory, and active gear to your XIV Hub web dashboard in real-time.");
+                    ImGui.TextWrapped("When enabled, this plugin acts as a silent companion, automatically pushing your character data, inventory, and active gear to Aetherhold in real time.");
                     
                     ImGui.Dummy(new Vector2(0, 20));
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Engine Telemetry");
+                    ImGui.TextColored(Theme.Crystal, "Engine Telemetry");
                     ImGui.Dummy(new Vector2(0, 5));
                     
                     ImGui.Text($"Total Sync Attempts: {sender.TotalSyncs}");
-                    ImGui.TextColored(sender.FailedSyncs > 0 ? new Vector4(1,0.3f,0.3f,1) : new Vector4(0.6f,0.65f,0.7f,1), $"Failed Syncs: {sender.FailedSyncs}");
+                    ImGui.TextColored(sender.FailedSyncs > 0 ? Theme.Bad : Theme.Text2, $"Failed Syncs: {sender.FailedSyncs}");
                     ImGui.Text($"Last Sync Time: {(sender.LastSyncTime == DateTime.MinValue ? "Never" : sender.LastSyncTime.ToString("HH:mm:ss"))}");
                     ImGui.TextWrapped($"Connection Status: {sender.LastSyncStatus}");
                     
                     ImGui.Dummy(new Vector2(0, 20));
-                    ImGui.TextColored(new Vector4(0.9f, 0.8f, 0.4f, 1.0f), "Data Reset");
+                    ImGui.TextColored(Theme.Gold, "Data Reset");
                     ImGui.Dummy(new Vector2(0, 5));
                     ImGui.TextWrapped("Warning: Wiping the calendar will delete all custom events across all devices for this character. Proceed with caution.");
                     
-                    Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-                    Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-                    Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+                    Vector4 btnBg = Theme.Night2;
+                    Vector4 btnHover = Theme.Crystal;
+                    Vector4 btnText = Theme.Text;
                     Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                     Vector4 redBtnBg = new Vector4(0.3f, 0.1f, 0.1f, 1.0f);
-                    Vector4 redBtnHover = new Vector4(0.83f, 0.69f, 0.22f, 1.0f);
+                    Vector4 redBtnHover = Theme.Gold;
                     
                     if (UIHelper.DrawPremiumButton("btn_wipe", ImGui.GetCursorScreenPos(), new Vector2(150, 30), "Wipe Calendar", redBtnBg, redBtnHover, btnText, btnHoverText))
                     {
@@ -871,10 +876,10 @@ namespace XIVHubCompanion
                     
                     if (UIHelper.BeginPremiumModal("Confirm Wipe Calendar", ref _isWipeModalOpen, ImGui.GetWindowPos(), ImGui.GetWindowSize(), new Vector2(400, 200) * AppScale, out float alpha))
                     {
-                        ImGui.TextColored(new Vector4(1f, 0.2f, 0.2f, 1f), "Are you absolutely sure?");
+                        ImGui.TextColored(Theme.Bad, "Are you absolutely sure?");
                         ImGui.Separator();
                         ImGui.Dummy(new Vector2(0, 10 * AppScale));
-                        ImGui.TextWrapped("This will permanently delete all events for this character on the XIV Hub backend.");
+                        ImGui.TextWrapped("This will permanently delete all events for this character on Aetherhold.");
                         ImGui.Dummy(new Vector2(0, 20 * AppScale));
                         
                         if (UIHelper.DrawPremiumButton("btn_confirm_wipe", ImGui.GetCursorScreenPos(), new Vector2(120, 30) * AppScale, "Yes, wipe it!", redBtnBg, redBtnHover, btnText, btnHoverText))
@@ -921,6 +926,18 @@ namespace XIVHubCompanion
             }
         }
 
+        private long? _lastVentureEnd = -1;
+
+        /// <summary>Venture timer from the game (open problem 8): the website's retainer clock reads prefs.retainerVentureEnd (ms).</summary>
+        private void PushVentureEnd(long latestEndUnix)
+        {
+            long? ms = latestEndUnix > 0 ? latestEndUnix * 1000 : null;
+            if (ms == _lastVentureEnd || !sender.StateLoaded) return;
+            _lastVentureEnd = ms;
+            if (sender.GetState<long?>("prefs.retainerVentureEnd") == ms) return;
+            sender.SetState("prefs.retainerVentureEnd", ms);
+        }
+
         private unsafe void UpdateRetainersGlobal()
         {
             var rm = FFXIVClientStructs.FFXIV.Client.Game.RetainerManager.Instance();
@@ -929,6 +946,7 @@ namespace XIVHubCompanion
             int active = 0;
             int returned = 0;
             long shortest = long.MaxValue;
+            long latestEnd = 0;
             
             long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             
@@ -942,6 +960,7 @@ namespace XIVHubCompanion
                 
                 if (ret->VentureId != 0)
                 {
+                    latestEnd = Math.Max(latestEnd, ret->VentureComplete);
                     long diff = ret->VentureComplete - now;
                     if (diff <= 0)
                     {
@@ -955,6 +974,7 @@ namespace XIVHubCompanion
             }
             
             ActiveRetainersCount = active;
+            if (rm->IsReady) PushVentureEnd(latestEnd);
             ReturnedRetainersCount = returned;
             ShortestRetainerVentureTime = shortest == long.MaxValue ? 0 : shortest;
             

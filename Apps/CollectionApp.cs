@@ -18,7 +18,7 @@ namespace XIVHubCompanion.Apps
         public string Icon => FontAwesomeIcon.Book.ToIconString();
         public bool IsVisible { get; set; } = false;
 
-        private readonly DataSender _sender;
+        private readonly HubClient _sender;
         private readonly CollectionService _collectionService;
         private readonly ITextureProvider _textureProvider;
 
@@ -29,7 +29,7 @@ namespace XIVHubCompanion.Apps
         private Dictionary<CollectionCategory, bool> _categoryOpenState = new Dictionary<CollectionCategory, bool>();
         private Dictionary<CollectionCategory, float> _categoryAnimProgress = new Dictionary<CollectionCategory, float>();
 
-        public CollectionApp(DataSender sender, CollectionService collectionService, ITextureProvider textureProvider)
+        public CollectionApp(HubClient sender, CollectionService collectionService, ITextureProvider textureProvider)
         {
             _sender = sender;
             _collectionService = collectionService;
@@ -86,7 +86,7 @@ namespace XIVHubCompanion.Apps
                 string icon = isOpen ? "▼" : "▶";
                 
                 Vector4 bgActive = new Vector4(0.0f, 0.4f, 0.7f, 0.4f);
-                Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
+                Vector4 bgNormal = Theme.Night2;
                 
                 if (UIHelper.DrawPremiumButton($"btn_cat_{category}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35f * PluginUI.AppScale), $"{icon}  {category} ({unlocked}/{total})", isCategorySelected ? bgActive : bgNormal, bgActive, Vector4.One, Vector4.One))
                 {
@@ -131,7 +131,7 @@ namespace XIVHubCompanion.Apps
                         
                         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 15f * PluginUI.AppScale);
                         
-                        if (UIHelper.DrawPremiumButton($"btn_sub_{category}_{sub}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 28f * PluginUI.AppScale), $"{sub} ({subUnlocked}/{subTotal})", isSubSelected ? bgActive : new Vector4(0,0,0,0), bgActive, isSubSelected ? Vector4.One : new Vector4(0.7f, 0.7f, 0.7f, 1f), Vector4.One))
+                        if (UIHelper.DrawPremiumButton($"btn_sub_{category}_{sub}", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 28f * PluginUI.AppScale), $"{sub} ({subUnlocked}/{subTotal})", isSubSelected ? bgActive : new Vector4(0,0,0,0), bgActive, isSubSelected ? Vector4.One : Theme.Text2, Vector4.One))
                         {
                             _selectedCategory = category;
                             _selectedSubcategory = sub;
@@ -167,8 +167,8 @@ namespace XIVHubCompanion.Apps
             int unlocked = items.Count(i => (_selectedSubcategory == "All" || i.Subcategory == _selectedSubcategory) && i.IsUnlocked);
             
             ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), $"Category Progress: {unlocked} / {total} ({((total > 0 ? (float)unlocked/total*100f : 0)):F1}%)");
-            ImGui.PushStyleColor(ImGuiCol.PlotHistogram, UIHelper.Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f)));
+            ImGui.TextColored(Theme.Crystal, $"Category Progress: {unlocked} / {total} ({((total > 0 ? (float)unlocked/total*100f : 0)):F1}%)");
+            ImGui.PushStyleColor(ImGuiCol.PlotHistogram, UIHelper.Vec4ToU32(Theme.Crystal));
             ImGui.ProgressBar(total > 0 ? (float)unlocked/total : 0, new Vector2(-1, 4), "");
             ImGui.PopStyleColor();
 
@@ -222,7 +222,7 @@ namespace XIVHubCompanion.Apps
             
             float cornerRadius = 12f;
             var bgColor = item.IsUnlocked ? new Vector4(0.0f, 0.15f, 0.25f, 1f) : new Vector4(0.08f, 0.08f, 0.09f, 1f);
-            var borderColor = item.IsUnlocked ? new Vector4(0.0f, 0.65f, 1.0f, 0.8f) : new Vector4(0.2f, 0.2f, 0.25f, 0.5f);
+            var borderColor = item.IsUnlocked ? Theme.Crystal.With(0.8f) : Theme.Night3.With(0.5f);
             
             drawList.AddRectFilled(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(bgColor), cornerRadius);
             drawList.AddRect(screenPos, screenPos + new Vector2(width, height), ImGui.GetColorU32(borderColor), cornerRadius, ImDrawFlags.None, item.IsUnlocked ? 1.5f : 1f);
@@ -244,7 +244,7 @@ namespace XIVHubCompanion.Apps
 
             if (texWrap != null)
             {
-                Vector4 tint = item.IsUnlocked ? Vector4.One : new Vector4(0.3f, 0.3f, 0.3f, 1f);
+                Vector4 tint = item.IsUnlocked ? Vector4.One : Theme.Night3;
                 ImGui.Image(texWrap.Handle, new Vector2(iconSize, iconSize), Vector2.Zero, Vector2.One, tint);
             }
             else
@@ -272,7 +272,7 @@ namespace XIVHubCompanion.Apps
             {
                 ImGui.BeginTooltip();
                 
-                ImGui.TextColored(item.IsUnlocked ? new Vector4(0.0f, 0.65f, 1.0f, 1.0f) : ImGuiColors.DalamudGrey, item.Name);
+                ImGui.TextColored(item.IsUnlocked ? Theme.Crystal : ImGuiColors.DalamudGrey, item.Name);
                 
                 ImGui.SameLine();
                 ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 10);
@@ -289,7 +289,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.Separator();
                 if (item.IsUnlocked)
                 {
-                    ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Unlocked");
+                    ImGui.TextColored(Theme.Crystal, "Unlocked");
                 }
                 else
                 {

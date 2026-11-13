@@ -8,13 +8,14 @@ using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System.Collections.Generic;
 using Lumina.Excel.Sheets;
 using Dalamud.Game.Gui.ContextMenu;
+using Newtonsoft.Json.Linq;
 
 namespace XIVHubCompanion
 {
     public sealed class Plugin : IDalamudPlugin
     {
-        public string Name => "NAGU PAD (XIV HUB COMPANION)";
-        private const string CommandName = "/xivhub";
+        public string Name => "Aetherhold";
+        private static readonly string[] Commands = { "/aetherhold", "/xivhub" };
 
         private readonly IDalamudPluginInterface _pluginInterface;
         private readonly ICommandManager _commandManager;
@@ -26,7 +27,7 @@ namespace XIVHubCompanion
         private readonly IChatGui _chatGui;
         private readonly IPluginLog _log;
         
-        private readonly DataSender _sender;
+        private readonly HubClient _sender;
         private readonly Configuration _configuration;
         private readonly PluginUI _ui;
         private readonly Collections.CollectionService _collectionService;
@@ -68,22 +69,19 @@ namespace XIVHubCompanion
             _chatGui = chatGui;
             _log = log;
 
-            MemoryOffsets.Initialize(sigScanner, log);
 
             _configuration = _pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             _configuration.Initialize(_pluginInterface);
             
             _collectionService = new Collections.CollectionService(_dataManager, unlockState);
 
-            _sender = new DataSender(_log, _configuration);
+            _sender = new HubClient(_log, _configuration);
             _sender.OnAuthRejected += OnAuthRejected;
             _ui =new PluginUI(_configuration, _sender, gameGui, chatGui, addonLifecycle, textureProvider, _pluginInterface, _log, objectTable, dataManager, _clientState, _commandManager, condition, unlockState);
             _sender.StartStreaming();
 
-            _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
-            {
-                HelpMessage = "Opens the NAGU-PAD window."
-            });
+            foreach (var cmd in Commands)
+                _commandManager.AddHandler(cmd, new CommandInfo(OnCommand) { HelpMessage = "Opens Aetherhold.", ShowInHelp = cmd == Commands[0] });
 
             _pluginInterface.UiBuilder.Draw += DrawUI;
             _pluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
@@ -99,14 +97,14 @@ namespace XIVHubCompanion
                 _ui.SettingsVisible = true;
             }
 
-            _log.Info("XIV Hub Companion initialized.");
+            _log.Info($"Aetherhold {HubClient.Version} initialized.");
         }
 
         private void OnAuthRejected()
         {
             // Raised from a background task; print on the framework thread
             _framework.RunOnFrameworkThread(() =>
-                _chatGui.PrintError("[XIV Hub] Your XIVHub ID was rejected, so LiveSync is paused. Copy your ID from xiv.naguya.tech/settings and enter it again with /xivhub."));
+                _chatGui.PrintError("[Aetherhold] Your plugin token was rejected, so LiveSync is paused. Copy it from aetherhold.naguya.tech/settings and enter it again with /aetherhold."));
         }
 
         private void OnLogin()
@@ -129,7 +127,7 @@ namespace XIVHubCompanion
                     
                     var searchMenuItem = new MenuItem
                     {
-                        Name = "Search NAGU PAD",
+                        Name = "Search in Aetherhold",
                         PrefixChar = 'N', // Just a placeholder char if we want an icon later
                         OnClicked = (i) =>
                         {
@@ -155,7 +153,7 @@ namespace XIVHubCompanion
             _pluginInterface.UiBuilder.Draw -= DrawUI;
             _pluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
             _pluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
-            _commandManager.RemoveHandler(CommandName);
+            foreach (var cmd in Commands) _commandManager.RemoveHandler(cmd);
             _sender.StopStreaming();
             _ui.Dispose();
         }
@@ -178,7 +176,7 @@ namespace XIVHubCompanion
         private void OnFrameworkUpdate(IFramework framework)
         {
             if (!_configuration.IsSyncEnabled) return;
-            // The server rejects LiveSync without a valid XIVHub ID, so don't send it
+            // The server rejects LiveSync without a valid plugin token, so don't send it
             if (string.IsNullOrEmpty(_configuration.XivHubId) || _sender.AuthRejected) return;
 
             var localPlayer = _objectTable[0] as Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter;
@@ -275,42 +273,44 @@ namespace XIVHubCompanion
             var caught = new List<uint>();
             var ps = PlayerState.Instance();
             if (ps == null) return caught;
-            
-            var fishSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.FishParameter>();
-            if (fishSheet != null && ps->CaughtFishBitArray.Pointer != null)
+            foreach (var fish in _dataManager.GetExcelSheet<FishParameter>())
+                if (fish.Item.RowId != 0 && fish.IsInLog && ps->IsFishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
+            foreach (var fish in _dataManager.GetExcelSheet<SpearfishingItem>())
+                if (fish.Item.RowId != 0 && ps->IsSpearfishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
+            return caught;
+        }
+
+        private static readonly string[] CrafterAbbr = { "CRP", "BSM", "ARM", "GSM", "LTW", "WVR", "ALC", "CUL" };
+        private static readonly uint[] BuffStatuses = { 48, 49 }; // Well Fed, Medicated: live stats would include them
+        private string _lastCrafterKey = "";
+
+        /// <summary>
+        /// Crafter stats from live (open problem 7): the current crafter's unbuffed stats go to the plugin's solver
+        /// profile and to the website's crafting.job_profiles, so nobody types them by hand.
+        /// </summary>
+        private void PushCrafterStats(Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter player, int craft, int control, int cp)
+        {
+            var jobId = player.ClassJob.RowId;
+            if (jobId < 8 || jobId > 15 || craft <= 0) return;
+            if (player.StatusList.Any(st => BuffStatuses.Contains(st.StatusId))) return;
+            int level = player.Level, idx = (int)jobId - 8;
+            var key = $"{jobId}:{level}:{craft}:{control}:{cp}";
+            if (key == _lastCrafterKey || !_sender.StateLoaded) return;
+            _lastCrafterKey = key;
+
+            if (_configuration.CrafterProfiles.Count > idx)
             {
-                var ptr = ps->CaughtFishBitArray.Pointer;
-                foreach (var fish in fishSheet)
-                {
-                    if (fish.Item.RowId == 0) continue;
-                    uint id = fish.RowId;
-                    var offset = id / 8;
-                    var bit = (byte)(id % 8);
-                    if (((ptr[offset] >> bit) & 1) == 1)
-                    {
-                        caught.Add(fish.Item.RowId);
-                    }
-                }
+                var p = _configuration.CrafterProfiles[idx];
+                p.Level = level; p.Craftsmanship = craft; p.Control = control; p.Cp = cp;
+                _configuration.Save();
             }
 
-            var spearSheet = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.SpearfishingItem>();
-            if (spearSheet != null && ps->CaughtSpearfishBitArray.Pointer != null)
-            {
-                var ptr = ps->CaughtSpearfishBitArray.Pointer;
-                foreach (var fish in spearSheet)
-                {
-                    if (fish.Item.RowId == 0) continue;
-                    uint id = fish.RowId;
-                    var offset = id / 8;
-                    var bit = (byte)(id % 8);
-                    if (((ptr[offset] >> bit) & 1) == 1)
-                    {
-                        caught.Add(fish.Item.RowId);
-                    }
-                }
-            }
-            
-            return caught;
+            var all = (_sender.GetState("crafting.job_profiles") as JObject)?.DeepClone() as JObject ?? new JObject();
+            var entry = all[CrafterAbbr[idx]] as JObject ?? new JObject();
+            if (entry.Value<int?>("level") == level && entry.Value<int?>("craftsmanship") == craft && entry.Value<int?>("control") == control && entry.Value<int?>("cp") == cp) return;
+            entry["level"] = level; entry["craftsmanship"] = craft; entry["control"] = control; entry["cp"] = cp;
+            all[CrafterAbbr[idx]] = entry;
+            _sender.SetState("crafting.job_profiles", all);
         }
 
         private unsafe void SyncData(Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter player)
@@ -448,6 +448,8 @@ namespace XIVHubCompanion
                 };
 
                 _sender.SendDataAsync(data);
+                if (s.TryGetValue("craft", out var craft) && s.TryGetValue("control", out var control) && s.TryGetValue("cp", out var cp))
+                    PushCrafterStats(player, craft, control, cp);
             }
             catch (Exception ex)
             {

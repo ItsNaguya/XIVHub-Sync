@@ -132,12 +132,12 @@ namespace XIVHubCompanion
             
             if (hoverState > 0.01f)
             {
-                Vector4 glowColor = LerpColor(new Vector4(0.0f, 0.65f, 1.0f, 0f), new Vector4(0.0f, 0.65f, 1.0f, 0.8f), hoverState);
+                Vector4 glowColor = LerpColor(Theme.Crystal.With(0f), Theme.Crystal.With(0.8f), hoverState);
                 drawList.AddRect(pos, pos + size, Vec4ToU32(glowColor), rounding, 0, 1.5f);
             }
             else 
             {
-                drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f)), rounding, 0, 1.0f);
+                drawList.AddRect(pos, pos + size, Vec4ToU32(Theme.Crystal.With(0.23f)), rounding, 0, 1.0f);
             }
 
             drawList.PushClipRect(pos, pos + size, true);
@@ -186,12 +186,12 @@ namespace XIVHubCompanion
             float hoverState = GetHoverState(baseId, isHovered, 10.0f);
             var drawList = ImGui.GetWindowDrawList();
             
-            Vector4 baseBg = new Vector4(0.08f, 0.08f, 0.1f, 1.0f);
-            Vector4 hoverBg = new Vector4(0.12f, 0.12f, 0.15f, 1.0f);
+            Vector4 baseBg = Theme.Night1;
+            Vector4 hoverBg = Theme.Night2;
             Vector4 currentBg = LerpColor(baseBg, hoverBg, hoverState);
             
-            uint ceruleumBlue = Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
-            uint edgeHighlight = Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
+            uint ceruleumBlue = Vec4ToU32(Theme.Crystal);
+            uint edgeHighlight = Vec4ToU32(Theme.Crystal.With(0.23f));
 
             if (isCalculating)
                 currentBg = new Vector4(0.05f, 0.05f, 0.06f, 1.0f);
@@ -206,7 +206,7 @@ namespace XIVHubCompanion
             {
                 float time = (float)ImGui.GetTime();
                 float pulse = (float)Math.Sin(time * 6.0f) * 0.3f + 0.5f;
-                drawList.AddRect(buttonPos, buttonPos + buttonSize, Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, pulse)), rounding, 0, 2f);
+                drawList.AddRect(buttonPos, buttonPos + buttonSize, Vec4ToU32(Theme.Crystal.With(pulse)), rounding, 0, 2f);
                 
                 float scanX = (time * buttonSize.X * 1.5f) % (buttonSize.X * 2) - buttonSize.X;
                 float startX = Math.Max(buttonPos.X, buttonPos.X + scanX);
@@ -217,10 +217,10 @@ namespace XIVHubCompanion
                     drawList.AddRectFilledMultiColor(
                         new Vector2(startX, buttonPos.Y + 2), 
                         new Vector2(endX, buttonPos.Y + buttonSize.Y - 2),
-                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0f)),
-                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0.3f)),
-                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0.3f)),
-                        Vec4ToU32(new Vector4(0f, 0.65f, 1f, 0f))
+                        Vec4ToU32(Theme.Crystal.With(0f)),
+                        Vec4ToU32(Theme.Crystal.With(0.3f)),
+                        Vec4ToU32(Theme.Crystal.With(0.3f)),
+                        Vec4ToU32(Theme.Crystal.With(0f))
                     );
                 }
             }
@@ -245,8 +245,8 @@ namespace XIVHubCompanion
             
             var drawList = ImGui.GetWindowDrawList();
             
-            Vector4 baseBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f); // Gunmetal
-            Vector4 hoverBg = new Vector4(0.2f, 0.2f, 0.22f, 1.0f);
+            Vector4 baseBg = Theme.Night2; // Gunmetal
+            Vector4 hoverBg = Theme.Night3;
             Vector4 currentBg = LerpColor(baseBg, hoverBg, hoverState);
             
             float rounding = 8f;
@@ -279,8 +279,8 @@ namespace XIVHubCompanion
             float checkState = GetHoverState(baseId ^ 0x12345678, isChecked, 15.0f);
 
             var drawList = ImGui.GetWindowDrawList();
-            Vector4 darkIron = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + checkState * 0.5f);
+            Vector4 darkIron = Theme.Night2;
+            Vector4 borderCol = LerpColor(Theme.Crystal.With(0.45f), Theme.Crystal, hoverState * 0.5f + checkState * 0.5f);
             
             float rounding = 4f;
             drawList.AddRectFilled(pos, pos + new Vector2(size, size), Vec4ToU32(darkIron), rounding);
@@ -290,7 +290,7 @@ namespace XIVHubCompanion
             {
                 float innerSize = size * 0.5f * checkState;
                 Vector2 center = pos + new Vector2(size / 2, size / 2);
-                drawList.AddRectFilled(center - new Vector2(innerSize / 2), center + new Vector2(innerSize / 2), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, checkState)), rounding * 0.5f);
+                drawList.AddRectFilled(center - new Vector2(innerSize / 2), center + new Vector2(innerSize / 2), Vec4ToU32(Theme.Crystal.With(checkState)), rounding * 0.5f);
             }
 
             return isClicked;
@@ -324,13 +324,13 @@ namespace XIVHubCompanion
             var drawList = ImGui.GetWindowDrawList();
             Vector2 center = pos + new Vector2(radius, radius);
             
-            drawList.AddCircleFilled(center, radius, Vec4ToU32(new Vector4(0.12f, 0.12f, 0.14f, 1.0f)));
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 1.0f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + selectState * 0.5f);
+            drawList.AddCircleFilled(center, radius, Vec4ToU32(Theme.Night2));
+            Vector4 borderCol = LerpColor(Theme.Crystal.With(0.45f), Theme.Crystal, hoverState * 0.5f + selectState * 0.5f);
             drawList.AddCircle(center, radius, Vec4ToU32(borderCol), 0, 1.5f);
 
             if (selectState > 0.01f)
             {
-                drawList.AddCircleFilled(center, radius * 0.5f * selectState, Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, selectState)));
+                drawList.AddCircleFilled(center, radius * 0.5f * selectState, Vec4ToU32(Theme.Crystal.With(selectState)));
             }
             
             return isClicked;
@@ -359,7 +359,7 @@ namespace XIVHubCompanion
             float activeState = GetHoverState(baseId ^ 0x12345678, isActive, 10.0f);
 
             Vector4 bgCol = new Vector4(0.08f, 0.08f, 0.09f, 1.0f);
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 0.5f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + activeState * 0.5f);
+            Vector4 borderCol = LerpColor(Theme.Crystal.With(0.23f), Theme.Crystal, hoverState * 0.5f + activeState * 0.5f);
             
             float rounding = 8f;
             drawList.AddRectFilled(pos, pos + size, Vec4ToU32(bgCol), rounding);
@@ -367,13 +367,13 @@ namespace XIVHubCompanion
 
             if (activeState > 0.01f)
             {
-                drawList.AddRect(pos - new Vector2(1,1), pos + size + new Vector2(1,1), Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, activeState * 0.3f)), rounding, 0, 2f);
+                drawList.AddRect(pos - new Vector2(1,1), pos + size + new Vector2(1,1), Vec4ToU32(Theme.Crystal.With(activeState * 0.3f)), rounding, 0, 2f);
             }
 
             ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0,0,0,0));
             ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, new Vector4(0,0,0,0));
             ImGui.PushStyleColor(ImGuiCol.FrameBgActive, new Vector4(0,0,0,0));
-            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.9f, 0.9f, 0.9f, 1.0f));
+            ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text);
             
             float padY = Math.Max(0, (size.Y - ImGui.GetTextLineHeight()) * 0.5f);
             ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(12f, padY));
@@ -413,9 +413,9 @@ namespace XIVHubCompanion
             float segmentWidth = (totalWidth - (spacing * (tabs.Length - 1))) / tabs.Length;
             Vector2 btnSize = new Vector2(segmentWidth, 35f * PluginUI.AppScale);
             
-            Vector4 bgActive = new Vector4(0.2f, 0.4f, 0.8f, 1f); // Ceruleum Blue
-            Vector4 bgNormal = new Vector4(0.12f, 0.12f, 0.14f, 1f);
-            Vector4 textNormal = new Vector4(0.8f, 0.8f, 0.8f, 1f);
+            Vector4 bgActive = Theme.CrystalDeep; // Ceruleum Blue
+            Vector4 bgNormal = Theme.Night2;
+            Vector4 textNormal = Theme.Text;
             Vector4 textActive = new Vector4(1f, 1f, 1f, 1f);
 
             for (int i = 0; i < tabs.Length; i++)
@@ -450,13 +450,13 @@ namespace XIVHubCompanion
             float hoverState = GetHoverState(baseId, isHovered, 10.0f);
             
             var drawList = ImGui.GetWindowDrawList();
-            Vector4 bgCol = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
+            Vector4 bgCol = Theme.Night2;
             Vector4 hoverBg = new Vector4(0.18f, 0.18f, 0.22f, 1.0f);
             var currentBg = LerpColor(bgCol, hoverBg, hoverState);
             
             float rounding = 8f;
             drawList.AddRectFilled(pos, pos + size, Vec4ToU32(currentBg), rounding);
-            drawList.AddRect(pos, pos + size, Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f)), rounding, 0, 1f);
+            drawList.AddRect(pos, pos + size, Vec4ToU32(Theme.Crystal.With(0.23f)), rounding, 0, 1f);
 
             float arrowSize = 10f;
             Vector2 arrowCenter = pos + new Vector2(15, size.Y / 2);
@@ -466,7 +466,7 @@ namespace XIVHubCompanion
                     arrowCenter + new Vector2(-arrowSize/2, -arrowSize/4),
                     arrowCenter + new Vector2(arrowSize/2, -arrowSize/4),
                     arrowCenter + new Vector2(0, arrowSize/2),
-                    Vec4ToU32(new Vector4(0.9f, 0.9f, 0.9f, 1.0f))
+                    Vec4ToU32(Theme.Text)
                 );
             }
             else
@@ -475,7 +475,7 @@ namespace XIVHubCompanion
                     arrowCenter + new Vector2(-arrowSize/4, -arrowSize/2),
                     arrowCenter + new Vector2(-arrowSize/4, arrowSize/2),
                     arrowCenter + new Vector2(arrowSize/2, 0),
-                    Vec4ToU32(new Vector4(0.9f, 0.9f, 0.9f, 1.0f))
+                    Vec4ToU32(Theme.Text)
                 );
             }
 
@@ -507,23 +507,23 @@ namespace XIVHubCompanion
             float checkState = GetHoverState(baseId ^ 0x12345678, isChecked, 15.0f);
 
             var drawList = ImGui.GetWindowDrawList();
-            Vector4 offBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
+            Vector4 offBg = Theme.Night2;
             Vector4 onBg = new Vector4(0.0f, 0.5f, 0.9f, 1.0f);
             Vector4 currentBg = LerpColor(offBg, onBg, checkState);
             
             drawList.AddRectFilled(pos, pos + new Vector2(width, height), Vec4ToU32(currentBg), height * 0.5f);
-            Vector4 borderCol = LerpColor(new Vector4(0.3f, 0.3f, 0.35f, 0.5f), new Vector4(0.0f, 0.65f, 1.0f, 1.0f), hoverState * 0.5f + checkState * 0.5f);
+            Vector4 borderCol = LerpColor(Theme.Crystal.With(0.23f), Theme.Crystal, hoverState * 0.5f + checkState * 0.5f);
             drawList.AddRect(pos, pos + new Vector2(width, height), Vec4ToU32(borderCol), height * 0.5f, 0, 1.5f);
 
             float handleRadius = height * 0.5f - 3f;
             float handleX = Lerp(pos.X + height * 0.5f, pos.X + width - height * 0.5f, checkState);
             Vector2 handleCenter = new Vector2(handleX, pos.Y + height * 0.5f);
             
-            drawList.AddCircleFilled(handleCenter, handleRadius + 1f, Vec4ToU32(new Vector4(0.05f, 0.05f, 0.05f, 0.5f))); 
-            drawList.AddCircleFilled(handleCenter, handleRadius, Vec4ToU32(new Vector4(0.9f, 0.9f, 0.9f, 1.0f)));
+            drawList.AddCircleFilled(handleCenter, handleRadius + 1f, Vec4ToU32(Theme.Night0.With(0.5f))); 
+            drawList.AddCircleFilled(handleCenter, handleRadius, Vec4ToU32(Theme.Text));
             
             if (checkState > 0.01f) {
-                drawList.AddCircleFilled(handleCenter, handleRadius * 0.5f, Vec4ToU32(new Vector4(0.0f, 0.65f, 1.0f, checkState)));
+                drawList.AddCircleFilled(handleCenter, handleRadius * 0.5f, Vec4ToU32(Theme.Crystal.With(checkState)));
             }
             
             return isClicked;
@@ -546,7 +546,7 @@ namespace XIVHubCompanion
             ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 12f);
             ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1.0f);
             ImGui.PushStyleColor(ImGuiCol.PopupBg, new Vector4(0.06f, 0.06f, 0.09f, 0.98f));
-            ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.3f, 0.3f, 0.35f, 0.5f));
+            ImGui.PushStyleColor(ImGuiCol.Border, Theme.Crystal.With(0.23f));
             
             ImGui.BeginTooltip();
         }
@@ -572,7 +572,7 @@ namespace XIVHubCompanion
         {
             var drawList = ImGui.GetWindowDrawList();
             
-            Vector4 neonGlow = new Vector4(0.0f, 0.65f, 1.0f, 0.5f);
+            Vector4 neonGlow = Theme.Crystal.With(0.5f);
             Vector4 darkShadow = new Vector4(0.0f, 0.0f, 0.0f, 0.6f);
             Vector4 transparent = new Vector4(0.0f, 0.0f, 0.0f, 0.0f);
             
@@ -610,9 +610,9 @@ namespace XIVHubCompanion
             
             Vector2 modalPos = contentPos + (contentSize - currentSize) * 0.5f;
             
-            Vector4 bgColor = new Vector4(0.04f, 0.05f, 0.08f, 0.98f * alpha);
+            Vector4 bgColor = Theme.Night1.With(0.98f * alpha);
             drawList.AddRectFilled(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(bgColor), 12f);
-            drawList.AddRect(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.3f * alpha)), 12f, 0, 1f);
+            drawList.AddRect(modalPos, modalPos + currentSize, ImGui.ColorConvertFloat4ToU32(Theme.Crystal.With((0.3f * alpha) * 0.45f)), 12f, 0, 1f);
             
             ImGui.SetCursorScreenPos(modalPos + new Vector2(20, 20) * PluginUI.AppScale);
             ImGui.PushStyleVar(ImGuiStyleVar.Alpha, alpha);

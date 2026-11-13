@@ -146,7 +146,7 @@ namespace XIVHubCompanion.Apps
         public void DrawSettings() 
         {
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Integration Options");
+            ImGui.TextColored(Theme.Crystal, "Integration Options");
             ImGui.Dummy(new Vector2(0, 5));
             
             bool enableHover = _configuration.EnableHoverItemFetching;
@@ -160,7 +160,7 @@ namespace XIVHubCompanion.Apps
         private readonly IGameGui _gameGui;
         private readonly IAddonLifecycle _addonLifecycle;
         private readonly ITextureProvider _textureProvider;
-        private readonly DataSender _sender;
+        private readonly HubClient _sender;
         private readonly IPluginLog _log;
         private readonly Dalamud.Plugin.Services.IObjectTable _objectTable;
 
@@ -175,7 +175,6 @@ namespace XIVHubCompanion.Apps
         private HashSet<string> _seenTexts = new HashSet<string>();
         private HashSet<string> _activeRetainers = new HashSet<string>();
         
-        private bool _hasPulledState = false;
         
         // Routing Settings
         private int _routePriority = 1;
@@ -202,7 +201,6 @@ namespace XIVHubCompanion.Apps
         private string _filterMinLevel = "";
         private string _filterMaxLevel = "";
         private string _filterJob = "";
-        private int? _prevCategoryGroup = null;
 
         private bool _isRoutingEngineOpen = false;
         private string _activeCharacterName = string.Empty;
@@ -211,7 +209,6 @@ namespace XIVHubCompanion.Apps
         private MarketSearchItem _selectedItem = null;
         private MarketData _marketData = null;
         private bool _isLoadingMarketData = false;
-        private bool _detailShowHq = false;
         
         private Dictionary<int, int> _searchQuickAddQty = new();
         private Dictionary<int, float> _itemHoverAlphas = new();
@@ -221,7 +218,7 @@ namespace XIVHubCompanion.Apps
 
         public static Action<CartItem> OnAddToCart;
 
-        public MarketApp(IGameGui gameGui, IAddonLifecycle addonLifecycle, ITextureProvider textureProvider, DataSender sender, IPluginLog log, Dalamud.Plugin.Services.IObjectTable objectTable, IDalamudPluginInterface pluginInterface, Configuration configuration)
+        public MarketApp(IGameGui gameGui, IAddonLifecycle addonLifecycle, ITextureProvider textureProvider, HubClient sender, IPluginLog log, Dalamud.Plugin.Services.IObjectTable objectTable, IDalamudPluginInterface pluginInterface, Configuration configuration)
         {
             _gameGui = gameGui;
             _addonLifecycle = addonLifecycle;
@@ -245,7 +242,7 @@ namespace XIVHubCompanion.Apps
                 PushState();
             };
 
-            _sender.OnServerEventReceived += OnServerEvent;
+            _sender.StateChanged += OnStateChanged;
             
             _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "ItemSearchResult", OnItemSearchResultUpdate);
             _addonLifecycle.RegisterListener(AddonEvent.PostDraw, "ItemSearchResult", OnItemSearchResultUpdate);
@@ -253,71 +250,30 @@ namespace XIVHubCompanion.Apps
             _addonLifecycle.RegisterListener(AddonEvent.PostUpdate, "ItemSearchResultCategory", OnItemSearchResultUpdate);
         }
 
-        private void OnServerEvent(string eventType, string data)
-        {
-            if (eventType == "marketUpdate")
-            {
-                try {
-                    var token = JToken.Parse(data);
-                    if (token is JObject payload)
-                    {
-                        if (payload["data"] != null && payload["data"] is JObject innerData)
-                        {
-                            payload = innerData;
-                        }
-
-                        if (payload["cart"] != null) _cart = payload["cart"].ToObject<List<CartItem>>() ?? new List<CartItem>();
-                        if (payload["marketFavorites"] != null) _marketFavorites = payload["marketFavorites"].ToObject<Dictionary<string, MarketFavorite>>() ?? new Dictionary<string, MarketFavorite>();
-                        if (payload["route"] != null) _destinations = payload["route"].ToObject<List<DestinationGroup>>() ?? new List<DestinationGroup>();
-                    }
-                    UpdateActiveRetainers();
-                } catch (Exception ex) {
-                    _log.Error(ex, $"Failed to parse marketUpdate. Payload: {data}");
-                }
-            }
-        }
-        
-        private void PushState()
-        {
-            if (string.IsNullOrEmpty(_activeCharacterName)) return;
-
-            var payload = new
-            {
-                name = _activeCharacterName,
-                cart = _cart,
-                marketFavorites = _marketFavorites,
-                route = _destinations
-            };
-            System.Threading.Tasks.Task.Run(() => _sender.PushMarketStateAsync(payload));
-        }
-
-        private async System.Threading.Tasks.Task PullInitialStateAsync()
+        // market.cart / market.favorites / market.route: shared with the website through /api/hub/state
+        private void OnStateChanged(string section, JToken? value)
         {
             try
             {
-                var responseJson = await _sender.PullMarketStateAsync(_activeCharacterName);
-                if (!string.IsNullOrEmpty(responseJson))
+                switch (section)
                 {
-                    var token = JToken.Parse(responseJson);
-                    if (token is JObject obj && obj["data"] != null)
-                    {
-                        var data = obj["data"] as JObject;
-                        if (data != null)
-                        {
-                            if (data["cart"] != null) _cart = data["cart"].ToObject<List<CartItem>>() ?? new List<CartItem>();
-                            if (data["marketFavorites"] != null) _marketFavorites = data["marketFavorites"].ToObject<Dictionary<string, MarketFavorite>>() ?? new Dictionary<string, MarketFavorite>();
-                            if (data["route"] != null) _destinations = data["route"].ToObject<List<DestinationGroup>>() ?? new List<DestinationGroup>();
-                        }
-                        UpdateActiveRetainers();
-                    }
+                    case "market.cart": _cart = value?.ToObject<List<CartItem>>() ?? new List<CartItem>(); break;
+                    case "market.favorites": _marketFavorites = value?.ToObject<Dictionary<string, MarketFavorite>>() ?? new Dictionary<string, MarketFavorite>(); break;
+                    case "market.route": _destinations = value?.ToObject<List<DestinationGroup>>() ?? new List<DestinationGroup>(); break;
+                    default: return;
                 }
+                UpdateActiveRetainers();
             }
-            catch (Exception ex)
-            {
-                _log.Error(ex, "Failed to pull initial state");
-            }
+            catch (Exception ex) { _log.Error(ex, $"Failed to read {section}"); }
         }
-        
+
+        private void PushState() => _sender.SetStates(new Dictionary<string, object?>
+        {
+            ["market.cart"] = _cart,
+            ["market.favorites"] = _marketFavorites,
+            ["market.route"] = _destinations,
+        });
+
         private async System.Threading.Tasks.Task PerformSearchAsync(string query)
         {
             if (string.IsNullOrWhiteSpace(query)) return;
@@ -666,12 +622,6 @@ namespace XIVHubCompanion.Apps
             }
             catch { }
 
-            if (!_hasPulledState && !string.IsNullOrEmpty(_activeCharacterName))
-            {
-                _hasPulledState = true;
-                System.Threading.Tasks.Task.Run(PullInitialStateAsync);
-            }
-
             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(12, 12) * PluginUI.AppScale);
             ImGuiWindowFlags childFlags = ImGuiWindowFlags.None;
             if (PluginUI.HideScrollbars) childFlags |= ImGuiWindowFlags.NoScrollbar;
@@ -740,9 +690,9 @@ namespace XIVHubCompanion.Apps
 
             if (_destinations.Count > 0)
             {
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-                Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+                Vector4 btnBg = Theme.Night2;
+                Vector4 btnHover = Theme.Crystal;
+                Vector4 btnText = Theme.Text;
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, 0.7f), "ACTIVE SHOPPING ROUTE");
@@ -761,9 +711,9 @@ namespace XIVHubCompanion.Apps
             
             if (_cart.Count > 0)
             {
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-                Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+                Vector4 btnBg = Theme.Night2;
+                Vector4 btnHover = Theme.Crystal;
+                Vector4 btnText = Theme.Text;
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
                 
                 ImGui.Dummy(new Vector2(0, 10) * PluginUI.AppScale);
@@ -804,9 +754,9 @@ namespace XIVHubCompanion.Apps
                 System.Threading.Tasks.Task.Run(LoadCategoriesAsync);
             }
 
-            Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 btnBg = Theme.Night2;
+            Vector4 btnHover = Theme.Crystal;
+            Vector4 btnText = Theme.Text;
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
             var avail = ImGui.GetContentRegionAvail();
@@ -838,11 +788,11 @@ namespace XIVHubCompanion.Apps
 
                 if (UIHelper.BeginSmoothChild("category_explorer", new Vector2(leftPaneWidth, ImGui.GetContentRegionAvail().Y), false))
                 {
-                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), "CATEGORY SEARCH");
+                    ImGui.TextColored(Theme.Text2, "CATEGORY SEARCH");
 
                     if (_isLoadingCategories)
                     {
-                        ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1.0f), "Loading categories...");
+                        ImGui.TextColored(Theme.Text3, "Loading categories...");
                     }
                     else
                     {
@@ -876,7 +826,7 @@ namespace XIVHubCompanion.Apps
                             ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(4, 4) * PluginUI.AppScale);
                             if (UIHelper.BeginSmoothChild($"group_{group.Id}", new Vector2(0, childHeight), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
                             {
-                                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), group.Label);
+                                ImGui.TextColored(Theme.Text2, group.Label);
 
                                 float startX = ImGui.GetCursorScreenPos().X;
                                 float rightEdge = startX + ImGui.GetContentRegionAvail().X;
@@ -901,7 +851,7 @@ namespace XIVHubCompanion.Apps
                                         dynamic texWrap = GetIcon(iconId)?.GetWrapOrDefault();
                                         if (texWrap != null)
                                         {
-                                            if (isSelected) ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.83f, 0.69f, 0.22f, 0.3f));
+                                            if (isSelected) ImGui.PushStyleColor(ImGuiCol.Button, Theme.Gold.With(0.3f));
                                             else ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0));
 
                                             if (ImGui.ImageButton(texWrap.Handle, iconSize))
@@ -954,7 +904,7 @@ namespace XIVHubCompanion.Apps
                                     ImGui.Dummy(new Vector2(0, 3 * PluginUI.AppScale));
 
 
-                                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), "Lv.");
+                                    ImGui.TextColored(Theme.Text2, "Lv.");
                                     ImGui.SameLine();
                                     ImGui.SetNextItemWidth(50 * PluginUI.AppScale);
                                     ImGui.InputText("##minLv", ref _filterMinLevel, 4);
@@ -964,7 +914,7 @@ namespace XIVHubCompanion.Apps
                                     }
 
                                     ImGui.SameLine();
-                                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), "-");
+                                    ImGui.TextColored(Theme.Text2, "-");
                                     ImGui.SameLine();
                                     ImGui.SetNextItemWidth(50 * PluginUI.AppScale);
                                     ImGui.InputText("##maxLv", ref _filterMaxLevel, 4);
@@ -976,7 +926,7 @@ namespace XIVHubCompanion.Apps
                                     if (group.Id == 2)
                                     {
                                         ImGui.SameLine(0, 15 * PluginUI.AppScale);
-                                        ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), "Job");
+                                        ImGui.TextColored(Theme.Text2, "Job");
                                         ImGui.SameLine();
                                         ImGui.SetNextItemWidth(140 * PluginUI.AppScale);
                                         
@@ -995,7 +945,7 @@ namespace XIVHubCompanion.Apps
                                             
                                             foreach (var cat in JOB_CATEGORIES)
                                             {
-                                                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), cat.Key);
+                                                ImGui.TextColored(Theme.Text2, cat.Key);
                                                 foreach (var job in cat.Value)
                                                 {
                                                     bool is_selected = (_filterJob == job);
@@ -1042,7 +992,7 @@ namespace XIVHubCompanion.Apps
             {
                 if (_isSearching)
                 {
-                    ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, 1.0f), "Loading...");
+                    ImGui.TextColored(Theme.Gold, "Loading...");
                 }
                 else if (_searchResults.Count > 0)
                 {
@@ -1073,7 +1023,7 @@ namespace XIVHubCompanion.Apps
                 }
                 else
                 {
-                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1.0f), "Search or select a category to view items");
+                    ImGui.TextColored(Theme.Text3, "Search or select a category to view items");
                 }
                 ImGui.EndChild();
             }
@@ -1164,7 +1114,7 @@ namespace XIVHubCompanion.Apps
                     var cellW = ImGui.GetColumnWidth();
                     var cellH = 42f * PluginUI.AppScale;
                     
-                    UIHelper.DrawCard(cellP, new Vector2(cellW - 5, cellH), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 4f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+                    UIHelper.DrawCard(cellP, new Vector2(cellW - 5, cellH), Theme.Night2, 4f, Theme.Night3.With(0.5f));
 
                     var nameSize = ImGui.CalcTextSize(s.Name);
                     var timeText = FormatTimeAgo(s.Time);
@@ -1172,10 +1122,10 @@ namespace XIVHubCompanion.Apps
                     
                     ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 4 * PluginUI.AppScale);
                     ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (cellW - 5 - nameSize.X) / 2);
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1), s.Name);
+                    ImGui.TextColored(Theme.Text, s.Name);
                     
                     ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (cellW - 5 - timeSize.X) / 2);
-                    ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), timeText);
+                    ImGui.TextColored(Theme.Text3, timeText);
                     
                     ImGui.Dummy(new Vector2(0, 4 * PluginUI.AppScale));
                 }
@@ -1188,9 +1138,9 @@ namespace XIVHubCompanion.Apps
             var p = ImGui.GetCursorScreenPos();
             var w = ImGui.GetContentRegionAvail().X;
 
-            Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 btnBg = Theme.Night2;
+            Vector4 btnHover = Theme.Crystal;
+            Vector4 btnText = Theme.Text;
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
             // Back Button
@@ -1235,7 +1185,7 @@ namespace XIVHubCompanion.Apps
                     if (lvlText.Length > 0) lvlText += "  ";
                     lvlText += $"iLv. {_selectedItem.ilvl.Value}";
                 }
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), lvlText);
+                ImGui.TextColored(Theme.Text2, lvlText);
                 ImGui.EndGroup();
             }
             else
@@ -1259,7 +1209,7 @@ namespace XIVHubCompanion.Apps
             
             // Scope Selector Row & External Links
             var scopeP = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(scopeP, new Vector2(w, 40 * PluginUI.AppScale), new Vector4(0.12f, 0.12f, 0.14f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(scopeP, new Vector2(w, 40 * PluginUI.AppScale), Theme.Night2, 6f, Theme.Night3.With(0.5f));
             
             ImGui.SetCursorScreenPos(new Vector2(scopeP.X + 10 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale));
             ImGui.SetNextItemWidth(180 * PluginUI.AppScale);
@@ -1280,11 +1230,11 @@ namespace XIVHubCompanion.Apps
             }
 
             // External Links on the right
-            if (UIHelper.DrawPremiumButton("btn_universalis", new Vector2(scopeP.X + w - 190 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "Universalis", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_universalis", new Vector2(scopeP.X + w - 190 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "Universalis", btnBg, btnHover, Theme.Crystal, btnHoverText))
             {
                 Dalamud.Utility.Util.OpenLink("https://universalis.app/market/" + _selectedItem.id);
             }
-            if (UIHelper.DrawPremiumButton("btn_garland", new Vector2(scopeP.X + w - 95 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "GarlandTools", btnBg, btnHover, new Vector4(0.4f, 0.8f, 0.9f, 1.0f), btnHoverText))
+            if (UIHelper.DrawPremiumButton("btn_garland", new Vector2(scopeP.X + w - 95 * PluginUI.AppScale, scopeP.Y + 8 * PluginUI.AppScale), new Vector2(85, 24) * PluginUI.AppScale, "GarlandTools", btnBg, btnHover, Theme.Crystal, btnHoverText))
             {
                 Dalamud.Utility.Util.OpenLink("https://garlandtools.org/db/#item/" + _selectedItem.id);
             }
@@ -1295,19 +1245,19 @@ namespace XIVHubCompanion.Apps
 
             if (_isLoadingMarketData)
             {
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), "Loading market data...");
+                ImGui.TextColored(Theme.Text2, "Loading market data...");
                 return;
             }
 
             if (_marketData == null)
             {
-                ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), "Failed to load market data or item has no listings.");
+                ImGui.TextColored(Theme.Bad, "Failed to load market data or item has no listings.");
                 return;
             }
             
             if (!string.IsNullOrEmpty(_marketData.error))
             {
-                ImGui.TextColored(new Vector4(1.0f, 0.3f, 0.3f, 1.0f), _marketData.error);
+                ImGui.TextColored(Theme.Bad, _marketData.error);
                 return;
             }
 
@@ -1316,9 +1266,9 @@ namespace XIVHubCompanion.Apps
 
             // Add to Cart Ribbon
             var ribbonP = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(ribbonP, new Vector2(w, 40 * PluginUI.AppScale), new Vector4(0.12f, 0.12f, 0.14f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(ribbonP, new Vector2(w, 40 * PluginUI.AppScale), Theme.Night2, 6f, Theme.Night3.With(0.5f));
             ImGui.SetCursorScreenPos(new Vector2(ribbonP.X + 10, ribbonP.Y + 10));
-            ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "Add to Shopping Cart:");
+            ImGui.TextColored(Theme.Text2, "Add to Shopping Cart:");
             
             float rightAlign = ribbonP.X + w - 200 * PluginUI.AppScale;
             if (_selectedItem.canBeHq != false) rightAlign -= 60 * PluginUI.AppScale;
@@ -1399,7 +1349,7 @@ namespace XIVHubCompanion.Apps
             var w = ImGui.GetContentRegionAvail().X;
             var h = 80f * PluginUI.AppScale;
 
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night2, 6f, Theme.Night3.With(0.5f));
             
             ImGui.SetCursorScreenPos(new Vector2(p.X + 10, p.Y + 8));
             ImGui.TextColored(new Vector4(0.3f, 0.69f, 0.31f, 1.0f), isHq ? "CHEAPEST HQ" : "CHEAPEST NQ");
@@ -1411,15 +1361,15 @@ namespace XIVHubCompanion.Apps
                 var cheapest = listings.OrderBy(l => l.pricePerUnit).First();
                 ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), $"{cheapest.quantity} x {cheapest.pricePerUnit:N0}");
                 ImGui.SetCursorScreenPos(new Vector2(p.X + 10, p.Y + 52));
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), $"Server: ");
+                ImGui.TextColored(Theme.Text2, $"Server: ");
                 ImGui.SameLine(0, 0);
                 ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), cheapest.worldName ?? "-");
                 ImGui.SameLine(0, 5 * PluginUI.AppScale);
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), $"- Total: {cheapest.quantity * cheapest.pricePerUnit:N0}");
+                ImGui.TextColored(Theme.Text2, $"- Total: {cheapest.quantity * cheapest.pricePerUnit:N0}");
             }
             else
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), isHq ? "No HQ listings available." : "No NQ listings available.");
+                ImGui.TextColored(Theme.Text3, isHq ? "No HQ listings available." : "No NQ listings available.");
             }
 
             ImGui.SetCursorScreenPos(new Vector2(p.X, p.Y + h));
@@ -1435,7 +1385,7 @@ namespace XIVHubCompanion.Apps
             ImGui.Dummy(new Vector2(0, 5 * PluginUI.AppScale));
 
             var graphP = ImGui.GetCursorScreenPos();
-            UIHelper.DrawCard(graphP, new Vector2(w, h), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(graphP, new Vector2(w, h), Theme.Night2, 6f, Theme.Night3.With(0.5f));
 
             var sales = _marketData.recentHistory.Where(s => s.hq == isHq).ToList();
             if (sales.Count >= 2)
@@ -1449,7 +1399,7 @@ namespace XIVHubCompanion.Apps
                 var text = "Not enough data";
                 var size = ImGui.CalcTextSize(text);
                 ImGui.SetCursorScreenPos(new Vector2(graphP.X + (w - size.X) / 2, graphP.Y + (h - size.Y) / 2));
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), text);
+                ImGui.TextColored(Theme.Text3, text);
             }
 
             ImGui.SetCursorScreenPos(new Vector2(p.X, graphP.Y + h));
@@ -1463,17 +1413,17 @@ namespace XIVHubCompanion.Apps
             var listings = _marketData.listings.Where(l => l.hq == isHq).Take(50).ToList();
             if (listings.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No listings.");
+                ImGui.TextColored(Theme.Text3, "No listings.");
                 return;
             }
 
             var p = ImGui.GetCursorScreenPos();
             var w = ImGui.GetContentRegionAvail().X;
             var h = 30f + listings.Count * 22f; // approximate height
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.10f, 0.10f, 0.12f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night1, 6f, Theme.Night3.With(0.5f));
 
             ImGui.SetCursorScreenPos(new Vector2(p.X + 5, p.Y + 5));
-            ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.15f, 0.15f, 0.17f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.Header, Theme.Night2);
             if (ImGui.BeginTable($"market_listings_table_{(isHq ? "hq" : "nq")}", 4, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp, new Vector2(w - 10, h - 10)))
             {
                 ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthStretch, 0.3f);
@@ -1486,13 +1436,13 @@ namespace XIVHubCompanion.Apps
                 {
                     ImGui.TableNextRow();
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.94f, 0.78f, 0.35f, 1f), $"{l.pricePerUnit:N0}");
+                    ImGui.TextColored(Theme.Gold, $"{l.pricePerUnit:N0}");
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), $"x{l.quantity}");
+                    ImGui.TextColored(Theme.Text, $"x{l.quantity}");
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), l.worldName);
+                    ImGui.TextColored(Theme.Text, l.worldName);
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), l.retainerName);
+                    ImGui.TextColored(Theme.Text2, l.retainerName);
                 }
                 ImGui.EndTable();
             }
@@ -1508,17 +1458,17 @@ namespace XIVHubCompanion.Apps
             var sales = _marketData.recentHistory.Where(s => s.hq == isHq).Take(50).ToList();
             if (sales.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No recent sales.");
+                ImGui.TextColored(Theme.Text3, "No recent sales.");
                 return;
             }
 
             var p = ImGui.GetCursorScreenPos();
             var w = ImGui.GetContentRegionAvail().X;
             var h = 30f + sales.Count * 22f; // approximate height
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.10f, 0.10f, 0.12f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night1, 6f, Theme.Night3.With(0.5f));
 
             ImGui.SetCursorScreenPos(new Vector2(p.X + 5, p.Y + 5));
-            ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.15f, 0.15f, 0.17f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.Header, Theme.Night2);
             if (ImGui.BeginTable($"market_sales_table_{(isHq ? "hq" : "nq")}", 4, ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp, new Vector2(w - 10, h - 10)))
             {
                 ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthStretch, 0.3f);
@@ -1531,13 +1481,13 @@ namespace XIVHubCompanion.Apps
                 {
                     ImGui.TableNextRow();
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.94f, 0.78f, 0.35f, 1f), $"{s.pricePerUnit:N0}");
+                    ImGui.TextColored(Theme.Gold, $"{s.pricePerUnit:N0}");
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), $"x{s.quantity}");
+                    ImGui.TextColored(Theme.Text, $"x{s.quantity}");
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), s.worldName);
+                    ImGui.TextColored(Theme.Text, s.worldName);
                     ImGui.TableNextColumn();
-                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), s.buyerName);
+                    ImGui.TextColored(Theme.Text2, s.buyerName);
                 }
                 ImGui.EndTable();
             }
@@ -1551,7 +1501,7 @@ namespace XIVHubCompanion.Apps
             var w = ImGui.GetContentRegionAvail().X;
             var h = 50f;
             
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night2, 6f, Theme.Night3.With(0.5f));
 
             float clickWidth = w / 2;
             ImGui.SetCursorScreenPos(p);
@@ -1614,7 +1564,7 @@ namespace XIVHubCompanion.Apps
                     if (lvlText.Length > 0) lvlText += "  ";
                     lvlText += $"iLv. {ilvl.Value}";
                 }
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), lvlText);
+                ImGui.TextColored(Theme.Text2, lvlText);
             }
             else
             {
@@ -1625,9 +1575,9 @@ namespace XIVHubCompanion.Apps
             // Buttons on the right
             bool isFav = _marketFavorites.ContainsKey(id.ToString());
             
-            Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 btnBg = Theme.Night2;
+            Vector4 btnHover = Theme.Crystal;
+            Vector4 btnText = Theme.Text;
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
             
             float rightEdge = p.X + w;
@@ -1688,7 +1638,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.TableNextColumn();
                 
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Priority");
+                ImGui.TextColored(Theme.Text2, "Priority");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
                 UIHelper.DrawPremiumRadioButtonWithText("route_pri_0", "Fastest", ref _routePriority, 0);
                 UIHelper.DrawPremiumRadioButtonWithText("route_pri_1", "Balanced", ref _routePriority, 1);
@@ -1697,7 +1647,7 @@ namespace XIVHubCompanion.Apps
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Strategy");
+                ImGui.TextColored(Theme.Text2, "Strategy");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
                 UIHelper.DrawPremiumRadioButtonWithText("route_strat_0", "Strict Qty", ref _routeStrategy, 0);
                 UIHelper.DrawPremiumRadioButtonWithText("route_strat_1", "Smart Bulk", ref _routeStrategy, 1);
@@ -1705,7 +1655,7 @@ namespace XIVHubCompanion.Apps
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Quality");
+                ImGui.TextColored(Theme.Text2, "Quality");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
                 UIHelper.DrawPremiumRadioButtonWithText("route_qual_0", "Keep HQ", ref _routeQuality, 0);
                 UIHelper.DrawPremiumRadioButtonWithText("route_qual_1", "Force HQ", ref _routeQuality, 1);
@@ -1714,7 +1664,7 @@ namespace XIVHubCompanion.Apps
 
                 ImGui.TableNextColumn();
                 ImGui.BeginGroup();
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Travel");
+                ImGui.TextColored(Theme.Text2, "Travel");
                 ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
                 UIHelper.DrawPremiumSwitchWithText("chk_server_travel", "Allow Server Travel", ref _allowServerTravel);
                 if (!_allowServerTravel) _allowDcTravel = false;
@@ -1778,10 +1728,10 @@ namespace XIVHubCompanion.Apps
         private void DrawDestinationGroup(DestinationGroup dest)
         {
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "\uf0ac");
+            ImGui.TextColored(Theme.Crystal, "\uf0ac");
             ImGui.PopFont();
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1.0f), $"{dest.world} [{dest.dc}]");
+            ImGui.TextColored(Theme.Text, $"{dest.world} [{dest.dc}]");
 
             var p = ImGui.GetCursorScreenPos();
             var w = ImGui.GetContentRegionAvail().X;
@@ -1791,7 +1741,7 @@ namespace XIVHubCompanion.Apps
             var destTotalSize = ImGui.CalcTextSize(destTotalText);
             
             ImGui.SetCursorScreenPos(new Vector2(rightEdge - destTotalSize.X - 10f, p.Y - 20));
-            ImGui.TextColored(new Vector4(0.94f, 0.78f, 0.35f, 1f), destTotalText);
+            ImGui.TextColored(Theme.Gold, destTotalText);
             
             ImGui.SetCursorScreenPos(p);
             ImGui.Dummy(new Vector2(0, 5) * PluginUI.AppScale);
@@ -1809,7 +1759,7 @@ namespace XIVHubCompanion.Apps
             var w = ImGui.GetContentRegionAvail().X;
             var h = 54f;
             
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night2, 6f, Theme.Night3.With(0.5f));
 
             ImGui.SetCursorScreenPos(new Vector2(p.X + 12, p.Y + 17));
             bool isChecked = stop.checkedState;
@@ -1861,12 +1811,12 @@ namespace XIVHubCompanion.Apps
             if (stop.hq.HasValue && stop.hq.Value)
             {
                 ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.13f, 0.83f, 0.93f, 1f), "\uE03C");
+                ImGui.TextColored(Theme.Crystal, "\uE03C");
             }
             
             ImGui.SetCursorScreenPos(new Vector2(p.X + 85, p.Y + 29));
             ImGui.SetWindowFontScale(0.85f);
-            ImGui.TextColored(new Vector4(0.6f, 0.65f, 0.7f, 1f), $"Retainer: {stop.retainer}");
+            ImGui.TextColored(Theme.Text2, $"Retainer: {stop.retainer}");
             ImGui.SetWindowFontScale(1.0f);
 
             string buyText = $"Buy {stop.quantity} @ {stop.pricePerUnit:N0}";
@@ -1884,10 +1834,10 @@ namespace XIVHubCompanion.Apps
             float buyX = totalX - buySize.X - 25f;
             
             ImGui.SetCursorScreenPos(new Vector2(buyX, p.Y + 18));
-            ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), buyText);
+            ImGui.TextColored(Theme.Text, buyText);
 
             ImGui.SetCursorScreenPos(new Vector2(totalX, p.Y + 18));
-            ImGui.TextColored(new Vector4(0.94f, 0.78f, 0.35f, 1f), totalText);
+            ImGui.TextColored(Theme.Gold, totalText);
 
             if (UIHelper.DrawPremiumWarningButton($"btn_soldout_{stop.id}", new Vector2(btnX, p.Y + 16), new Vector2(btnWidth, 22 * PluginUI.AppScale), "Sold Out"))
             {
@@ -1905,7 +1855,7 @@ namespace XIVHubCompanion.Apps
             var w = ImGui.GetContentRegionAvail().X;
             var h = 50f;
             
-            UIHelper.DrawCard(p, new Vector2(w, h), new Vector4(0.12f, 0.12f, 0.13f, 1.0f), 6f, new Vector4(0.3f, 0.3f, 0.3f, 0.5f));
+            UIHelper.DrawCard(p, new Vector2(w, h), Theme.Night2, 6f, Theme.Night3.With(0.5f));
 
             uint iconId = 0;
             if (!string.IsNullOrEmpty(item.icon))
@@ -1938,7 +1888,7 @@ namespace XIVHubCompanion.Apps
                 if (item.hq.HasValue && item.hq.Value)
                 {
                     ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.13f, 0.83f, 0.93f, 1f), "\uE03C");
+                    ImGui.TextColored(Theme.Crystal, "\uE03C");
                 }
                 
                 ImGui.SetCursorScreenPos(new Vector2(p.X + 55 * PluginUI.AppScale, p.Y + 28 * PluginUI.AppScale));
@@ -1949,7 +1899,7 @@ namespace XIVHubCompanion.Apps
                     if (lvlText.Length > 0) lvlText += "  ";
                     lvlText += $"iLv. {item.ilvl.Value}";
                 }
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), lvlText);
+                ImGui.TextColored(Theme.Text2, lvlText);
             }
             else
             {
@@ -1959,14 +1909,14 @@ namespace XIVHubCompanion.Apps
                 if (item.hq.HasValue && item.hq.Value)
                 {
                     ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.13f, 0.83f, 0.93f, 1f), "\uE03C");
+                    ImGui.TextColored(Theme.Crystal, "\uE03C");
                 }
             }
             
             float rightEdge = p.X + w;
-            Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 btnBg = Theme.Night2;
+            Vector4 btnHover = Theme.Crystal;
+            Vector4 btnText = Theme.Text;
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
 
             ImGui.PushID(item.id);
@@ -2015,7 +1965,7 @@ namespace XIVHubCompanion.Apps
 
         public void Dispose()
         {
-            _sender.OnServerEventReceived -= OnServerEvent;
+            _sender.StateChanged -= OnStateChanged;
             _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "ItemSearchResult", OnItemSearchResultUpdate);
             _addonLifecycle.UnregisterListener(AddonEvent.PostDraw, "ItemSearchResult", OnItemSearchResultUpdate);
             _addonLifecycle.UnregisterListener(AddonEvent.PostUpdate, "ItemSearch", OnItemSearchResultUpdate);

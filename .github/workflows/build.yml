@@ -40,6 +40,9 @@ jobs:
               InternalName = $json.InternalName
               AssemblyVersion = $json.AssemblyVersion
               RepoUrl = "https://github.com/${{ github.repository }}"
+              IconUrl = "https://raw.githubusercontent.com/${{ github.repository }}/main/images/icon.png"
+              Changelog = $json.Changelog
+              Tags = $json.Tags
               ApplicableVersion = "any"
               DalamudApiLevel = $json.DalamudApiLevel
               DownloadCount = 0

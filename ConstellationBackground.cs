@@ -80,7 +80,7 @@ namespace XIVHubCompanion
                 Vector2 streamStart = pos + new Vector2(stream.Position.X, stream.Position.Y - stream.Length);
                 Vector2 streamEnd = pos + stream.Position;
                 
-                uint streamTopCol = ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.0f));
+                uint streamTopCol = ImGui.ColorConvertFloat4ToU32(Theme.Crystal.With(0.0f));
                 uint streamBotCol = ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.8f, 1.0f, stream.Alpha));
                 
                 drawList.AddRectFilledMultiColor(
@@ -95,8 +95,8 @@ namespace XIVHubCompanion
             if (!hideScanline)
             {
                 float scanAlpha = 0.15f;
-                uint scanClear = ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.65f, 1.0f, 0.0f));
-                uint scanSolid = ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.65f, 1.0f, scanAlpha));
+                uint scanClear = ImGui.ColorConvertFloat4ToU32(Theme.Crystal.With(0.0f));
+                uint scanSolid = ImGui.ColorConvertFloat4ToU32(Theme.Crystal.With(scanAlpha));
                 uint scanBright = ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.8f, 1.0f, scanAlpha * 2f));
                 
                 // Tail (fades out upwards)
@@ -150,7 +150,7 @@ namespace XIVHubCompanion
                 float finalAlpha = Math.Clamp(p.Alpha * glowMultiplier, 0f, 1f);
                 
                 // Draw particle (Ceruleum Blue)
-                drawList.AddCircleFilled(globalPos, p.Radius * glowMultiplier, ImGui.ColorConvertFloat4ToU32(new Vector4(0.0f, 0.65f, 1.0f, finalAlpha)));
+                drawList.AddCircleFilled(globalPos, p.Radius * glowMultiplier, ImGui.ColorConvertFloat4ToU32(Theme.Crystal.With(finalAlpha)));
 
                 // Draw connections
                 for (int j = i + 1; j < _particles.Count; j++)

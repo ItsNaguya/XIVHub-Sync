@@ -20,13 +20,13 @@ namespace XIVHubCompanion.Apps
         public void DrawSettings() { }
         public void Update() { }
 
-        private DataSender _sender;
+        private HubClient _sender;
         private IObjectTable _objectTable;
         private IPluginLog _log;
         private ITextureProvider _textureProvider;
         private IDalamudPluginInterface _pluginInterface;
         
-        private static readonly HttpClient _httpClient = new HttpClient();
+        private static readonly HttpClient _httpClient = new HttpClient { DefaultRequestHeaders = { { "User-Agent", HubClient.UserAgent } } };
         private Dictionary<string, ISharedImmediateTexture> _imageCache = new Dictionary<string, ISharedImmediateTexture>();
 
         private string _importUrl = "";
@@ -52,8 +52,6 @@ namespace XIVHubCompanion.Apps
         
         public enum ModalType { None, EventDetails, AddEvent, Venues }
         private ModalType _activeModal = ModalType.None;
-        private ModalType _lastActiveModal = ModalType.None;
-        private float _modalAlpha = 0f;
         
         private dynamic _selectedEvent = null;
         
@@ -62,7 +60,7 @@ namespace XIVHubCompanion.Apps
         
         private bool _initialFetchDone = false;
 
-        public EventsApp(DataSender sender, IObjectTable objectTable, IPluginLog log, ITextureProvider textureProvider, IDalamudPluginInterface pluginInterface)
+        public EventsApp(HubClient sender, IObjectTable objectTable, IPluginLog log, ITextureProvider textureProvider, IDalamudPluginInterface pluginInterface)
         {
             _sender = sender;
             _objectTable = objectTable;
@@ -239,13 +237,13 @@ namespace XIVHubCompanion.Apps
 
         private void DrawSidebar()
         {
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Actions");
+            ImGui.TextColored(Theme.Text, "Actions");
             ImGui.Separator();
             ImGui.Spacing();
 
-            Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 btnBg = Theme.Night2;
+            Vector4 btnHover = Theme.Crystal;
+            Vector4 btnText = Theme.Text;
             Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, 1.0f);
             
             if (UIHelper.DrawPremiumButton("btn_add_event", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 35 * PluginUI.AppScale), "Add Custom Event", btnBg, btnHover, btnText, btnHoverText))
@@ -254,7 +252,7 @@ namespace XIVHubCompanion.Apps
             }
 
             ImGui.Spacing(); ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "Import from Partake.gg");
+            ImGui.TextColored(Theme.Text2, "Import from Partake.gg");
             UIHelper.DrawPremiumInputText("input_partake", ImGui.GetCursorScreenPos(), new Vector2(ImGui.GetContentRegionAvail().X, 25 * PluginUI.AppScale), ref _importUrl, 255);
             ImGui.Spacing();
             
@@ -342,12 +340,12 @@ namespace XIVHubCompanion.Apps
 
         private void DrawUpcomingEvents()
         {
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Upcoming Events");
+            ImGui.TextColored(Theme.Text, "Upcoming Events");
             ImGui.Spacing();
 
             if (_isFetching)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "Loading...");
+                ImGui.TextColored(Theme.Text3, "Loading...");
                 return;
             }
 
@@ -372,7 +370,7 @@ namespace XIVHubCompanion.Apps
 
             if (upcoming.Count == 0)
             {
-                ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.5f, 1f), "No upcoming events.");
+                ImGui.TextColored(Theme.Text3, "No upcoming events.");
                 return;
             }
 
@@ -463,8 +461,8 @@ namespace XIVHubCompanion.Apps
                 ImGui.SetCursorScreenPos(cursorPos + new Vector2(PluginUI.Scaled(10f), imgHeight + PluginUI.Scaled(5f)));
                 Vector4 labelColor;
                 string labelText;
-                if (source == "lodestone") { labelColor = new Vector4(0.5f, 0.9f, 0.5f, 1f); labelText = "OFFICIAL"; }
-                else if (source == "partake") { labelColor = new Vector4(0.4f, 0.7f, 1f, 1f); labelText = "COMMUNITY"; }
+                if (source == "lodestone") { labelColor = Theme.Live; labelText = "OFFICIAL"; }
+                else if (source == "partake") { labelColor = Theme.Crystal; labelText = "COMMUNITY"; }
                 else { labelColor = new Vector4(1f, 0.5f, 0.7f, 1f); labelText = "COMMUNITY"; }
                 
                 ImGui.TextColored(labelColor, labelText);
@@ -474,7 +472,7 @@ namespace XIVHubCompanion.Apps
                 ImGui.Text(displayTitle);
                 
                 ImGui.SetCursorScreenPos(cursorPos + new Vector2(PluginUI.Scaled(10f), imgHeight + PluginUI.Scaled(43f)));
-                ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), timeStr);
+                ImGui.TextColored(Theme.Text2, timeStr);
                 
                 ImGui.SetCursorScreenPos(cursorPos + new Vector2(0, totalHeight + 10));
                 ImGui.PopID();
@@ -490,14 +488,14 @@ namespace XIVHubCompanion.Apps
             
             // Header: Month Year | Today | < | >
             string monthName = new DateTime(_currentYear, _currentMonth, 1).ToString("MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
-            ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, 1f), $"\uf073 {monthName}");
+            ImGui.TextColored(Theme.Gold, $"\uf073 {monthName}");
             
             float rightOffset = ImGui.GetWindowContentRegionMax().X - 120f;
             ImGui.SameLine(rightOffset);
             
-            Vector4 navBtnBg = new Vector4(0.12f, 0.12f, 0.14f, 1.0f);
-            Vector4 navBtnHover = new Vector4(0.0f, 0.65f, 1.0f, 1.0f);
-            Vector4 navBtnText = new Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+            Vector4 navBtnBg = Theme.Night2;
+            Vector4 navBtnHover = Theme.Crystal;
+            Vector4 navBtnText = Theme.Text;
             
             if (UIHelper.DrawPremiumButton("btn_today", ImGui.GetCursorScreenPos(), new Vector2(50, 25) * PluginUI.AppScale, "Today", navBtnBg, navBtnHover, navBtnText, navBtnText))
             {
@@ -566,7 +564,7 @@ namespace XIVHubCompanion.Apps
                             bool isToday = cellDate.Date == DateTime.Now.Date;
                             if (isToday)
                             {
-                                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.85f, 0.4f, 1f));
+                                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Gold);
                             }
                             
                             float startY = ImGui.GetCursorPosY();
@@ -648,7 +646,7 @@ namespace XIVHubCompanion.Apps
             if (ImGui.IsItemHovered())
             {
                 UIHelper.BeginTooltip();
-                ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, 1f), title);
+                ImGui.TextColored(Theme.Gold, title);
                 ImGui.Separator();
                 ImGui.Text($"Time: {timeStr}");
                 ImGui.Text($"Location: {location}");
@@ -714,7 +712,7 @@ namespace XIVHubCompanion.Apps
                     ImGui.SetWindowFontScale(1.2f);
                     float titleWidth = ImGui.CalcTextSize(title).X;
                     if (titleWidth < availWidth) ImGui.SetCursorPosX((availWidth - titleWidth) * 0.5f);
-                    ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, alphaEv), title);
+                    ImGui.TextColored(Theme.Gold.With(alphaEv), title);
                     ImGui.SetWindowFontScale(1.0f);
                     
                     ImGui.Separator();
@@ -723,7 +721,7 @@ namespace XIVHubCompanion.Apps
                     string locStr = $"Location: {loc}";
                     float locWidth = ImGui.CalcTextSize(locStr).X;
                     if (locWidth < availWidth) ImGui.SetCursorPosX((availWidth - locWidth) * 0.5f);
-                    ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, alphaEv), locStr);
+                    ImGui.TextColored(Theme.Text2.With(alphaEv), locStr);
                     ImGui.Spacing();
                     
                     ImGui.PushTextWrapPos(availWidth);
@@ -734,7 +732,7 @@ namespace XIVHubCompanion.Apps
                     var dl = ImGui.GetWindowDrawList();
                     var childMin = ImGui.GetWindowPos();
                     var childMax = childMin + ImGui.GetWindowSize();
-                    Vector4 bgColor = new Vector4(0.04f, 0.05f, 0.08f, 0.98f * alphaEv);
+                    Vector4 bgColor = Theme.Night1.With(0.98f * alphaEv);
                     dl.AddRectFilledMultiColor(
                         new Vector2(childMin.X, childMax.Y - 60f * PluginUI.AppScale), 
                         childMax,
@@ -766,14 +764,14 @@ namespace XIVHubCompanion.Apps
                     
                     ImGui.SetCursorPosX((ImGui.GetContentRegionAvail().X - totalButtonWidth) * 0.5f);
                     
-                    Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, alphaEv);
-                    Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, alphaEv);
-                    Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaEv);
+                    Vector4 btnBg = Theme.Night2.With(alphaEv);
+                    Vector4 btnHover = Theme.Crystal.With(alphaEv);
+                    Vector4 btnText = Theme.Text.With(alphaEv);
                     Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, alphaEv);
 
                     if (hasDelete) {
                         var (n, w) = GetPlayerContext();
-                        Vector4 delBg = new Vector4(0.83f, 0.69f, 0.22f, alphaEv);
+                        Vector4 delBg = Theme.Gold.With(alphaEv);
                         if (UIHelper.DrawPremiumButton("btn_del_ev", ImGui.GetCursorScreenPos(), new Vector2(80, 25) * PluginUI.AppScale, "Delete", delBg, btnHover, btnText, btnHoverText)) {
                             System.Threading.Tasks.Task.Run(async () => {
                                 await _sender.DeleteCustomEventAsync(id);
@@ -803,7 +801,7 @@ namespace XIVHubCompanion.Apps
 
             if (UIHelper.BeginPremiumModal("Add Custom Event", ref isAddEventOpen, contentPos, contentSize, new Vector2(420, 520) * PluginUI.AppScale, out float alphaAdd))
             {
-                ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, alphaAdd), "Add Custom Event");
+                ImGui.TextColored(Theme.Gold.With(alphaAdd), "Add Custom Event");
                 ImGui.Separator(); ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaAdd), "Event Title*");
@@ -843,9 +841,9 @@ namespace XIVHubCompanion.Apps
                 
                 ImGui.Spacing(); ImGui.Spacing();
                 
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, alphaAdd);
-                Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, alphaAdd);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaAdd);
+                Vector4 btnBg = Theme.Night2.With(alphaAdd);
+                Vector4 btnHover = Theme.Crystal.With(alphaAdd);
+                Vector4 btnText = Theme.Text.With(alphaAdd);
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, alphaAdd);
 
                 if (UIHelper.DrawPremiumButton("btn_save_event", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Save", btnBg, btnHover, btnText, btnHoverText))
@@ -884,16 +882,16 @@ namespace XIVHubCompanion.Apps
 
             if (UIHelper.BeginPremiumModal("Subscribed Venues", ref isVenuesOpen, contentPos, contentSize, new Vector2(400, 300) * PluginUI.AppScale, out float alphaVenues))
             {
-                ImGui.TextColored(new Vector4(1f, 0.85f, 0.4f, alphaVenues), "Subscribed Venues");
+                ImGui.TextColored(Theme.Gold.With(alphaVenues), "Subscribed Venues");
                 ImGui.Separator(); ImGui.Spacing();
                 
                 if (_venues.Count == 0) ImGui.TextColored(new Vector4(1, 1, 1, alphaVenues), "No venues subscribed.");
                 
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, alphaVenues);
-                Vector4 btnHover = new Vector4(0.0f, 0.65f, 1.0f, alphaVenues);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaVenues);
+                Vector4 btnBg = Theme.Night2.With(alphaVenues);
+                Vector4 btnHover = Theme.Crystal.With(alphaVenues);
+                Vector4 btnText = Theme.Text.With(alphaVenues);
                 Vector4 btnHoverText = new Vector4(1.0f, 1.0f, 1.0f, alphaVenues);
-                Vector4 delBg = new Vector4(0.83f, 0.69f, 0.22f, alphaVenues);
+                Vector4 delBg = Theme.Gold.With(alphaVenues);
                 
                 foreach (var v in _venues.ToList())
                 {

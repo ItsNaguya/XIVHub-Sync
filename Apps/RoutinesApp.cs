@@ -38,7 +38,7 @@ namespace XIVHubCompanion.Apps
             ImGui.SetWindowFontScale(1.1f);
             
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1.0f), "Core Settings");
+            ImGui.TextColored(Theme.Crystal, "Core Settings");
             ImGui.Dummy(new Vector2(0, 5));
             ImGui.Indent(20);
             
@@ -67,7 +67,7 @@ namespace XIVHubCompanion.Apps
         }
         public void Update() { }
 
-        private readonly DataSender _sender;
+        private readonly HubClient _sender;
         private readonly Configuration _config;
 
         private List<RoutineCategory> _categories;
@@ -88,7 +88,7 @@ namespace XIVHubCompanion.Apps
         private string _weeklyCountdown = "";
         private string _weeklyLocalTime = "";
 
-        public RoutinesApp(DataSender sender, Configuration config)
+        public RoutinesApp(HubClient sender, Configuration config)
         {
             _sender = sender;
             _config = config;
@@ -137,8 +137,7 @@ namespace XIVHubCompanion.Apps
             };
 
             LoadCustomTasks();
-            SyncStateFromServer();
-            _sender.OnServerEventReceived += OnServerEvent;
+            _sender.StateChanged += OnStateChanged;
         }
 
         private void LoadCustomTasks()
@@ -153,86 +152,44 @@ namespace XIVHubCompanion.Apps
             catch { _customTasks = new List<RoutineTask>(); }
         }
 
-        private void OnServerEvent(string type, string data)
+        // routines.checklist / routines.hidden / routines.custom: shared with the website through /api/hub/state.
+        // The server resets daily and weekly ticks and pushes the result here.
+        private void OnStateChanged(string section, JToken? value)
         {
-            if (type == "clientStateUpdate")
+            try
             {
-                try
+                switch (section)
                 {
-                    var cs = JObject.Parse(data);
-                    if (cs["ffxiv-hub-checklist"] != null)
-                    {
-                        var chk = cs["ffxiv-hub-checklist"].ToString();
-                        _config.RoutinesChecklist = JsonConvert.DeserializeObject<Dictionary<string, bool>>(chk) ?? new Dictionary<string, bool>();
-                    }
-                    if (cs["ffxiv-hub-hidden-tasks"] != null)
-                    {
-                        var hid = cs["ffxiv-hub-hidden-tasks"].ToString();
-                        _config.RoutinesHiddenTasks = JsonConvert.DeserializeObject<List<string>>(hid) ?? new List<string>();
-                    }
-                    if (cs["ffxiv-hub-custom-tasks"] != null)
-                    {
-                        _config.RoutinesCustomTasksJson = cs["ffxiv-hub-custom-tasks"].ToString();
+                    case "routines.checklist": _config.RoutinesChecklist = value?.ToObject<Dictionary<string, bool>>() ?? new Dictionary<string, bool>(); break;
+                    case "routines.hidden": _config.RoutinesHiddenTasks = value?.ToObject<List<string>>() ?? new List<string>(); break;
+                    case "routines.custom":
+                        _config.RoutinesCustomTasksJson = value?.ToString(Formatting.None) ?? "[]";
                         LoadCustomTasks();
-                    }
+                        break;
+                    default: return;
                 }
-                catch { }
+                _config.Save();
             }
-        }
-
-        private async void SyncStateFromServer()
-        {
-            var json = await _sender.FetchClientStateAsync();
-            if (!string.IsNullOrEmpty(json))
-            {
-                try
-                {
-                    var data = JObject.Parse(json);
-                    if (data["clientState"] != null)
-                    {
-                        var cs = data["clientState"];
-                        if (cs["ffxiv-hub-checklist"] != null)
-                        {
-                            var chk = cs["ffxiv-hub-checklist"].ToString();
-                            _config.RoutinesChecklist = JsonConvert.DeserializeObject<Dictionary<string, bool>>(chk) ?? new Dictionary<string, bool>();
-                        }
-                        if (cs["ffxiv-hub-hidden-tasks"] != null)
-                        {
-                            var hid = cs["ffxiv-hub-hidden-tasks"].ToString();
-                            _config.RoutinesHiddenTasks = JsonConvert.DeserializeObject<List<string>>(hid) ?? new List<string>();
-                        }
-                        if (cs["ffxiv-hub-custom-tasks"] != null)
-                        {
-                            _config.RoutinesCustomTasksJson = cs["ffxiv-hub-custom-tasks"].ToString();
-                            LoadCustomTasks();
-                        }
-                        _config.Save();
-                    }
-                }
-                catch { }
-            }
+            catch { }
         }
 
         private void SaveAndPushChecklist()
         {
             _config.Save();
-            var json = JsonConvert.SerializeObject(_config.RoutinesChecklist);
-            _ = _sender.PushClientStateAsync("ffxiv-hub-checklist", json);
+            _sender.SetState("routines.checklist", _config.RoutinesChecklist);
         }
 
         private void SaveAndPushHidden()
         {
             _config.Save();
-            var json = JsonConvert.SerializeObject(_config.RoutinesHiddenTasks);
-            _ = _sender.PushClientStateAsync("ffxiv-hub-hidden-tasks", json);
+            _sender.SetState("routines.hidden", _config.RoutinesHiddenTasks);
         }
 
         private void SaveAndPushCustom()
         {
-            var json = JsonConvert.SerializeObject(_customTasks);
-            _config.RoutinesCustomTasksJson = json;
+            _config.RoutinesCustomTasksJson = JsonConvert.SerializeObject(_customTasks);
             _config.Save();
-            _ = _sender.PushClientStateAsync("ffxiv-hub-custom-tasks", json);
+            _sender.SetState("routines.custom", _customTasks);
         }
 
         private void ResetChecklist(string type)
@@ -277,7 +234,7 @@ namespace XIVHubCompanion.Apps
                 _config.LastDailyResetTime = nextDailyTicks;
                 _config.Save();
             }
-            else if (_config.LastDailyResetTime < dailyResetThreshold)
+            else if (_config.LastDailyResetTime < dailyResetThreshold && (!_sender.HasToken || _sender.AuthRejected))
             {
                 ResetChecklist("daily");
                 _config.LastDailyResetTime = nextDailyTicks;
@@ -301,7 +258,7 @@ namespace XIVHubCompanion.Apps
                 _config.LastWeeklyResetTime = nextWeeklyTicks;
                 _config.Save();
             }
-            else if (_config.LastWeeklyResetTime < weeklyResetThreshold)
+            else if (_config.LastWeeklyResetTime < weeklyResetThreshold && (!_sender.HasToken || _sender.AuthRejected))
             {
                 ResetChecklist("weekly");
                 _config.LastWeeklyResetTime = nextWeeklyTicks;
@@ -309,18 +266,10 @@ namespace XIVHubCompanion.Apps
             }
         }
 
-        private DateTime _lastSync = DateTime.MinValue;
-
         public void Draw()
         {
             var contentPos = ImGui.GetCursorScreenPos();
             var contentSize = ImGui.GetContentRegionAvail();
-
-            if ((DateTime.UtcNow - _lastSync).TotalSeconds > 15)
-            {
-                _lastSync = DateTime.UtcNow;
-                SyncStateFromServer();
-            }
 
             CheckResets();
 
@@ -330,14 +279,14 @@ namespace XIVHubCompanion.Apps
             
             // Draw a subtle background panel for the header
             var drawList = ImGui.GetWindowDrawList();
-            drawList.AddRectFilled(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(new Vector4(0.12f, 0.12f, 0.15f, 0.8f)), 12f);
-            drawList.AddRect(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(new Vector4(0.3f, 0.3f, 0.3f, 0.3f)), 12f);
+            drawList.AddRectFilled(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(Theme.Night2.With(0.8f)), 12f);
+            drawList.AddRect(cursorStart, cursorStart + new Vector2(availWidth, 110), ImGui.GetColorU32(Theme.Night3.With(0.3f)), 12f);
 
             ImGui.SetCursorScreenPos(cursorStart + new Vector2(25, 25));
             ImGui.BeginGroup();
             
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), ((char)Dalamud.Interface.FontAwesomeIcon.Tasks).ToString());
+            ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.Tasks).ToString());
             ImGui.PopFont();
             
             ImGui.SameLine(0, 15);
@@ -346,11 +295,11 @@ namespace XIVHubCompanion.Apps
             ImGui.SetWindowFontScale(1.0f);
             
             ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "RESET IN:");
+            ImGui.TextColored(Theme.Text2, "RESET IN:");
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), _activeTab == "daily" ? _dailyCountdown : _weeklyCountdown);
+            ImGui.TextColored(Theme.Gold, _activeTab == "daily" ? _dailyCountdown : _weeklyCountdown);
             
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "LOCAL TIME:");
+            ImGui.TextColored(Theme.Text2, "LOCAL TIME:");
             ImGui.SameLine();
             ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), _activeTab == "daily" ? _dailyLocalTime : _weeklyLocalTime);
             
@@ -383,7 +332,7 @@ namespace XIVHubCompanion.Apps
             // Progress Circle (Bigger)
             var circleCenter = cursorStart + new Vector2(availWidth - 240, 55);
             float radius = 40f;
-            drawList.AddCircle(circleCenter, radius, ImGui.GetColorU32(new Vector4(0.2f, 0.2f, 0.2f, 0.5f)), 40, 10f);
+            drawList.AddCircle(circleCenter, radius, ImGui.GetColorU32(Theme.Night3.With(0.5f)), 40, 10f);
             
             if (percent > 0)
             {
@@ -392,7 +341,7 @@ namespace XIVHubCompanion.Apps
                 if (endAngle > startAngle)
                 {
                     drawList.PathArcTo(circleCenter, radius, startAngle, endAngle, 40);
-                    drawList.PathStroke(ImGui.GetColorU32(new Vector4(0.79f, 0.66f, 0.41f, 1.0f)), ImDrawFlags.None, 10f);
+                    drawList.PathStroke(ImGui.GetColorU32(Theme.Gold), ImDrawFlags.None, 10f);
                 }
             }
 
@@ -400,13 +349,13 @@ namespace XIVHubCompanion.Apps
             string percentText = $"{Math.Round(percent * 100)}%";
             var textSize = ImGui.CalcTextSize(percentText);
             ImGui.SetCursorScreenPos(circleCenter - new Vector2(textSize.X / 2, textSize.Y / 2 + 5));
-            ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), percentText);
+            ImGui.TextColored(Theme.Gold, percentText);
             
             string fractionText = $"{completed}/{activeTasks.Count}";
             var fracSize = ImGui.CalcTextSize(fractionText);
             ImGui.SetCursorScreenPos(circleCenter - new Vector2(fracSize.X / 2, -(textSize.Y / 2 - 5)));
             ImGui.SetWindowFontScale(0.8f);
-            ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1.0f), fractionText);
+            ImGui.TextColored(Theme.Text2, fractionText);
             ImGui.SetWindowFontScale(1.0f);
 
             // Tab Toggles
@@ -428,9 +377,9 @@ namespace XIVHubCompanion.Apps
             // Controls
             ImGui.BeginGroup();
             
-            Vector4 baseBg = new Vector4(0.12f, 0.12f, 0.14f, 1f);
-            Vector4 activeBg = new Vector4(0.0f, 0.65f, 1.0f, 1f);
-            Vector4 textCol = new Vector4(0.9f, 0.9f, 0.9f, 1f);
+            Vector4 baseBg = Theme.Night2;
+            Vector4 activeBg = Theme.Crystal;
+            Vector4 textCol = Theme.Text;
             Vector4 activeTextCol = new Vector4(1f, 1f, 1f, 1f);
             
             if (UIHelper.DrawPremiumButton("btn_edit_tasks", ImGui.GetCursorScreenPos(), new Vector2(120, 30), _isEditMode ? "Done Editing" : "Edit Tasks", _isEditMode ? activeBg : baseBg, activeBg, _isEditMode ? activeTextCol : textCol, activeTextCol))
@@ -486,10 +435,10 @@ namespace XIVHubCompanion.Apps
                     UIHelper.BeginSmoothChild($"CatChild_{cat.Id}", new Vector2(0, catTasks.Count * 35 + 40), true, ImGuiWindowFlags.NoScrollbar);
                     
                     ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                    ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), ((char)Dalamud.Interface.FontAwesomeIcon.ListUl).ToString());
+                    ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.ListUl).ToString());
                     ImGui.PopFont();
                     ImGui.SameLine();
-                    ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), cat.Label.ToUpper());
+                    ImGui.TextColored(Theme.Gold, cat.Label.ToUpper());
                     
                     ImGui.Spacing();
 
@@ -506,8 +455,8 @@ namespace XIVHubCompanion.Apps
                             
                             // Use Eye icons
                             string icon = show ? ((char)Dalamud.Interface.FontAwesomeIcon.Eye).ToString() : ((char)Dalamud.Interface.FontAwesomeIcon.EyeSlash).ToString();
-                            if (!show) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 0.4f, 0.4f, 1.0f));
-                            else ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.0f, 0.65f, 1.0f, 1.0f));
+                            if (!show) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
+                            else ImGui.PushStyleColor(ImGuiCol.Text, Theme.Crystal);
                             
                             if (ImGui.Button($"{icon}###toggle_{task.Id}", new Vector2(24, 24)))
                             {
@@ -519,7 +468,7 @@ namespace XIVHubCompanion.Apps
                             ImGui.PopFont();
                             
                             ImGui.SameLine();
-                            if (isHidden) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+                            if (isHidden) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
                             ImGui.AlignTextToFramePadding();
                             ImGui.Text(task.Label);
                             if (isHidden) ImGui.PopStyleColor();
@@ -528,7 +477,7 @@ namespace XIVHubCompanion.Apps
                             {
                                 ImGui.SameLine(ImGui.GetContentRegionAvail().X - 30);
                                 ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-                                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.83f, 0.69f, 0.22f, 1.0f));
+                                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Gold);
                                 ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0, 0, 0, 0));
                                 if (ImGui.Button($"{((char)Dalamud.Interface.FontAwesomeIcon.Trash)}###del_{task.Id}", new Vector2(24, 24)))
                                 {
@@ -542,8 +491,8 @@ namespace XIVHubCompanion.Apps
                         else
                         {
                             bool wasChecked = isChecked;
-                            ImGui.PushStyleColor(ImGuiCol.CheckMark, new Vector4(0.79f, 0.66f, 0.41f, 1.0f));
-                            if (wasChecked) ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 0.5f, 0.5f, 1.0f));
+                            ImGui.PushStyleColor(ImGuiCol.CheckMark, Theme.Gold);
+                            if (wasChecked) ImGui.PushStyleColor(ImGuiCol.Text, Theme.Text3);
                             
                             if (ImGui.Checkbox($"{task.Label}###{task.Id}", ref isChecked))
                             {
@@ -579,7 +528,7 @@ namespace XIVHubCompanion.Apps
 
             if (UIHelper.BeginPremiumModal("Add Custom Task", ref isAddOpen, contentPos, contentSize, new Vector2(400, 310) * PluginUI.AppScale, out float alphaAdd))
             {
-                ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f * alphaAdd), "Add Custom Task");
+                ImGui.TextColored(Theme.Gold.With(1.0f * alphaAdd), "Add Custom Task");
                 ImGui.Separator();
                 ImGui.Spacing();
                 
@@ -618,9 +567,9 @@ namespace XIVHubCompanion.Apps
                 float availWidth = ImGui.GetContentRegionAvail().X;
                 ImGui.SetCursorPosX(availWidth - 210 * PluginUI.AppScale); // align right
                 
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, alphaAdd);
-                Vector4 btnHover = new Vector4(0.2f, 0.2f, 0.25f, alphaAdd);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaAdd);
+                Vector4 btnBg = Theme.Night2.With(alphaAdd);
+                Vector4 btnHover = Theme.Night3.With(alphaAdd);
+                Vector4 btnText = Theme.Text.With(alphaAdd);
                 
                 if (UIHelper.DrawPremiumButton("btn_cancel_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaAdd)))
                 {
@@ -630,7 +579,7 @@ namespace XIVHubCompanion.Apps
                 
                 bool canAdd = !string.IsNullOrEmpty(_customTitle) && !string.IsNullOrEmpty(_customCategory);
                 if (!canAdd) ImGui.BeginDisabled();
-                if (UIHelper.DrawPremiumButton("btn_confirm_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Add Task", new Vector4(0.0f, 0.65f, 1.0f, alphaAdd), new Vector4(0.2f, 0.75f, 1.0f, alphaAdd), new Vector4(1, 1, 1, alphaAdd), new Vector4(1, 1, 1, alphaAdd)))
+                if (UIHelper.DrawPremiumButton("btn_confirm_add", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Add Task", Theme.Crystal.With(alphaAdd), new Vector4(0.2f, 0.75f, 1.0f, alphaAdd), new Vector4(1, 1, 1, alphaAdd), new Vector4(1, 1, 1, alphaAdd)))
                 {
                     var id = $"custom_{Guid.NewGuid().ToString().Substring(0, 8)}";
                     _customTasks.Add(new RoutineTask { Id = id, Type = _customType, CategoryId = _customCategory, Label = _customTitle });
@@ -647,21 +596,21 @@ namespace XIVHubCompanion.Apps
 
             if (UIHelper.BeginPremiumModal("Confirm Reset", ref isResetOpen, contentPos, contentSize, new Vector2(400, 210) * PluginUI.AppScale, out float alphaReset))
             {
-                ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, alphaReset), "Confirm Reset");
+                ImGui.TextColored(Theme.Gold.With(alphaReset), "Confirm Reset");
                 ImGui.Separator();
                 ImGui.Spacing();
                 
                 ImGui.TextColored(new Vector4(1, 1, 1, alphaReset), $"Are you sure you want to reset all {_activeTab} progress?");
-                ImGui.TextColored(new Vector4(0.83f, 0.69f, 0.22f, alphaReset), "This action cannot be undone.");
+                ImGui.TextColored(Theme.Gold.With(alphaReset), "This action cannot be undone.");
                 
                 ImGui.Spacing(); ImGui.Spacing();
                 
                 float availWidth = ImGui.GetContentRegionAvail().X;
                 ImGui.SetCursorPosX(availWidth - 210 * PluginUI.AppScale);
                 
-                Vector4 btnBg = new Vector4(0.12f, 0.12f, 0.14f, alphaReset);
-                Vector4 btnHover = new Vector4(0.2f, 0.2f, 0.25f, alphaReset);
-                Vector4 btnText = new Vector4(0.9f, 0.9f, 0.9f, alphaReset);
+                Vector4 btnBg = Theme.Night2.With(alphaReset);
+                Vector4 btnHover = Theme.Night3.With(alphaReset);
+                Vector4 btnText = Theme.Text.With(alphaReset);
                 
                 if (UIHelper.DrawPremiumButton("btn_cancel_reset", ImGui.GetCursorScreenPos(), new Vector2(100, 30) * PluginUI.AppScale, "Cancel", btnBg, btnHover, btnText, new Vector4(1, 1, 1, alphaReset)))
                 {
@@ -685,7 +634,7 @@ namespace XIVHubCompanion.Apps
 
         public void Dispose()
         {
-            _sender.OnServerEventReceived -= OnServerEvent;
+            _sender.StateChanged -= OnStateChanged;
         }
 
         private unsafe void DrawRetainers(float availWidth)
@@ -701,10 +650,10 @@ namespace XIVHubCompanion.Apps
             ImGui.Spacing();
             
             ImGui.PushFont(Dalamud.Interface.UiBuilder.IconFont);
-            ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), ((char)Dalamud.Interface.FontAwesomeIcon.Briefcase).ToString());
+            ImGui.TextColored(Theme.Gold, ((char)Dalamud.Interface.FontAwesomeIcon.Briefcase).ToString());
             ImGui.PopFont();
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.79f, 0.66f, 0.41f, 1.0f), "RETAINER VENTURES");
+            ImGui.TextColored(Theme.Gold, "RETAINER VENTURES");
             ImGui.SameLine();
 
             float contentWidth = ImGui.GetContentRegionAvail().X;
@@ -726,11 +675,11 @@ namespace XIVHubCompanion.Apps
                     // Retainer Card Background
                     Vector2 cursorPos = ImGui.GetCursorScreenPos();
                     var drawList = ImGui.GetWindowDrawList();
-                    drawList.AddRectFilled(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(new Vector4(0.08f, 0.08f, 0.1f, 0.8f)), 4f);
-                    drawList.AddRect(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(new Vector4(0.3f, 0.3f, 0.35f, 0.5f)), 4f);
+                    drawList.AddRectFilled(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(Theme.Night1.With(0.8f)), 4f);
+                    drawList.AddRect(cursorPos, cursorPos + new Vector2(160, 60), UIHelper.Vec4ToU32(Theme.Crystal.With(0.23f)), 4f);
                     
                     ImGui.SetCursorScreenPos(cursorPos + new Vector2(10, 8));
-                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), ret->NameString);
+                    ImGui.TextColored(Theme.Text, ret->NameString);
                     
                     float fullness = Math.Min(1.0f, (float)ret->ItemCount / 175f);
                     ImGui.SetCursorScreenPos(cursorPos + new Vector2(10, 28));
@@ -747,18 +696,18 @@ namespace XIVHubCompanion.Apps
                         long diff = ret->VentureComplete - now;
                         if (diff <= 0)
                         {
-                            ImGui.TextColored(new Vector4(0.0f, 0.65f, 1.0f, 1f), "Returned!");
+                            ImGui.TextColored(Theme.Crystal, "Returned!");
                             returnedCount++;
                         }
                         else
                         {
                             var ts = TimeSpan.FromSeconds(diff);
-                            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), $"{ts.Hours:D2}h {ts.Minutes:D2}m {ts.Seconds:D2}s");
+                            ImGui.TextColored(Theme.Text, $"{ts.Hours:D2}h {ts.Minutes:D2}m {ts.Seconds:D2}s");
                         }
                     }
                     else
                     {
-                        ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.6f, 1f), "No Venture");
+                        ImGui.TextColored(Theme.Text2, "No Venture");
                     }
                     
                     ImGui.EndGroup();
