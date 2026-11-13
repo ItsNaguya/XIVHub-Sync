@@ -90,8 +90,6 @@ namespace XIVHubCompanion
 
         public int SolverInitialQuality { get; set; } = 0;
         public bool SolverRequireTargetQuality { get; set; } = false;
-        /// <summary>Solve crafting macros on this PC (bundled aetherhold_solver.dll); off = always ask the server.</summary>
-        public bool SolverUseLocal { get; set; } = true;
         public bool SolverManipulation { get; set; } = true;
         public bool SolverHeartAndSoul { get; set; } = false;
         public bool SolverQuickInnovation { get; set; } = false;

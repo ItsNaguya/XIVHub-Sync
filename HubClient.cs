@@ -298,9 +298,5 @@ namespace XIVHubCompanion
         public Task<string?> FetchAquaticNodesAsync() => Get($"/data/xhub_aquatic_nodes_v3.json?t={DateTime.UtcNow.Ticks}");
         public Task<string?> FetchGatheringLogPagesAsync() => Get("/data/gathering-log-pages.json");
         public Task<string?> FetchDataNodesAsync() => Get("/data/nodes.json");
-
-        public Task<string?> SolverQueueAsync() => Get("/api/crafting/solve/queue");
-        /// <summary>The solver can queue for minutes: long timeout, any status (the caller shows the error text).</summary>
-        public Task<string?> SolveAsync(object payload) => Send(HttpMethod.Post, "/api/crafting/solve", payload, okOnly: false, timeout: TimeSpan.FromMinutes(10));
     }
 }

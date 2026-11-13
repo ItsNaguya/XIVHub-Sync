@@ -16,9 +16,6 @@ namespace XIVHubCompanion.Apps
         private bool _solverLoaded, _ensureReliability, _editProfile;
         private int _editJob = -1;
         private volatile bool _isSolving;
-        private DateTime _lastQueuePoll = DateTime.MinValue;
-        private string _queueText = "Solving...";
-        private volatile bool _solveOnServer;
         private string? _solveError;
         private SolveResult? _solveResult;
         private uint _solveRecipe;
@@ -27,6 +24,12 @@ namespace XIVHubCompanion.Apps
         private int _maxProgress = 6600, _maxQuality = 14000, _maxDurability = 70, _rlvl = 640, _job;
         private bool _expert;
         private string _ctxName = "";
+
+        // HQ materials -> starting quality (the game's rule: share of HQ item levels times the recipe's material quality factor)
+        private bool _qualityMatters = true;   // false: the result can't be HQ and isn't a collectable
+        private int _maxIq;                    // quality * MaterialQualityFactor / 100
+        private readonly List<(uint Id, string Name, uint Icon, int Amount, int Ilvl)> _hqIngs = new();
+        private readonly Dictionary<uint, int> _hqCounts = new();
 
         private class SolveResult
         {
@@ -138,6 +141,23 @@ namespace XIVHubCompanion.Apps
             _expert = r.Value.IsExpert;
             _job = r.Value.CraftType.RowId < 8 ? (int)r.Value.CraftType.RowId : 0;
             if (_solveRecipe != rid) { _solveResult = null; _solveError = null; }
+
+            var result = r.Value.ItemResult.Value;
+            _qualityMatters = r.Value.CanHq || result.IsCollectable;
+            _maxIq = _qualityMatters ? (int)Math.Floor(_maxQuality * r.Value.MaterialQualityFactor / 100.0) : 0;
+            _hqIngs.Clear();
+            _hqCounts.Clear();
+            var items = _dataManager.GetExcelSheet<Item>();
+            for (int i = 0; i < r.Value.Ingredient.Count; i++)
+            {
+                uint id = r.Value.Ingredient[i].RowId;
+                int amt = r.Value.AmountIngredient[i];
+                var it = items.GetRowOrDefault(id);
+                // only materials that exist in HQ count (crystals and NQ-only items never do)
+                if (id == 0 || amt <= 0 || !it.HasValue || !it.Value.CanBeHq || it.Value.ItemUICategory.RowId == 59) continue;
+                _hqIngs.Add((id, it.Value.Name.ToString(), it.Value.Icon, amt, (int)Math.Max(1, it.Value.LevelItem.RowId)));
+            }
+            _configuration.SolverInitialQuality = Math.Clamp(_configuration.SolverInitialQuality, 0, _maxIq);
         }
 
         // =============================================================================================================
@@ -300,16 +320,58 @@ namespace XIVHubCompanion.Apps
             // ---- starting quality --------------------------------------------------------------------------------
             Ui.Caps(dl, new Vector2(x, y), "Starting quality");
             y += LH + S(4);
-            int maxIq = _maxQuality / 2, iq = Math.Clamp(_configuration.SolverInitialQuality, 0, maxIq);
-            float inW = S(84);
-            ImGui.SetCursorScreenPos(new Vector2(x, y));
-            PushFrame();
-            ImGui.SetNextItemWidth(iw - inW - S(8));
-            if (ImGui.SliderInt("##cf_iqs", ref iq, 0, Math.Max(1, maxIq), "")) { _configuration.SolverInitialQuality = iq; }
-            if (ImGui.IsItemDeactivatedAfterEdit()) _configuration.Save();
-            PopFrame();
-            if (IntInput("##cf_iqi", ref iq, inW, new Vector2(x + iw - inW, y), 0, maxIq)) { _configuration.SolverInitialQuality = iq; _configuration.Save(); }
-            y += FrameH + S(12);
+            if (!_qualityMatters)
+            {
+                Ui.Text(dl, new Vector2(x, y), Fit("This item has no HQ version: quality doesn't matter.", iw, 0.85f), Theme.Text3, 0.85f);
+                y += LH + S(12);
+            }
+            else if (_maxIq <= 0 || _hqIngs.Count == 0)
+            {
+                Ui.Text(dl, new Vector2(x, y), Fit("No material of this recipe exists in HQ.", iw, 0.85f), Theme.Text3, 0.85f);
+                y += LH + S(12);
+            }
+            else
+            {
+                // HQ materials: how many of each you put in (the website's QoL list)
+                Ui.Text(dl, new Vector2(x + iw - Ui.TextSize("HQ materials", 0.8f).X, y - LH - S(4) + S(2)), "HQ materials", Theme.Text3, 0.8f);
+                float rowH = Math.Max(S(28), LH) + S(4), ic = S(24);
+                bool countsChanged = false;
+                foreach (var ing in _hqIngs)
+                {
+                    GameIcon(ing.Icon, new Vector2(x, y + (rowH - ic) / 2), ic);
+                    Ui.Text(dl, new Vector2(x + ic + S(8), y + (rowH - LH) / 2), Fit($"{ing.Name} x{ing.Amount}", iw - ic - S(16) - StepperW, 0.9f), Theme.Text, 0.9f);
+                    int c = _hqCounts.GetValueOrDefault(ing.Id);
+                    if (Stepper("cf_hq" + ing.Id, ref c, new Vector2(x + iw - StepperW, y + (rowH - S(26)) / 2), 0))
+                    {
+                        _hqCounts[ing.Id] = Math.Clamp(c, 0, ing.Amount);
+                        countsChanged = true;
+                    }
+                    y += rowH;
+                }
+                if (countsChanged)
+                {
+                    long total = _hqIngs.Sum(i => (long)i.Amount * i.Ilvl);
+                    long hq = _hqIngs.Sum(i => (long)_hqCounts.GetValueOrDefault(i.Id) * i.Ilvl);
+                    _configuration.SolverInitialQuality = total > 0 ? (int)(_maxIq * hq / total) : 0;
+                    _configuration.Save();
+                }
+                Ui.Text(dl, new Vector2(x, y + S(2)), Fit("HQ count per material, or set the quality directly:", iw, 0.8f), Theme.Text3, 0.8f);
+                y += LH * 0.8f + S(8);
+
+                int iq = Math.Clamp(_configuration.SolverInitialQuality, 0, _maxIq);
+                float inW = S(84);
+                ImGui.SetCursorScreenPos(new Vector2(x, y));
+                PushFrame();
+                ImGui.SetNextItemWidth(iw - inW - S(8));
+                if (ImGui.SliderInt("##cf_iqs", ref iq, 0, _maxIq, "")) { _configuration.SolverInitialQuality = iq; _hqCounts.Clear(); }
+                if (ImGui.IsItemDeactivatedAfterEdit()) _configuration.Save();
+                PopFrame();
+                if (IntInput("##cf_iqi", ref iq, inW, new Vector2(x + iw - inW, y), 0, _maxIq)) { _configuration.SolverInitialQuality = iq; _hqCounts.Clear(); _configuration.Save(); }
+                y += FrameH + S(4);
+                var mx = $"of {_maxIq:N0} max";
+                Ui.Text(dl, new Vector2(x + iw - Ui.TextSize(mx, 0.8f).X, y), mx, Theme.Text3, 0.8f);
+                y += LH * 0.8f + S(10);
+            }
 
             // ---- options: per crafter on the website (job_profiles), solver settings here ----------------------------
             Ui.Caps(dl, new Vector2(x, y), "Solver options");
@@ -323,36 +385,23 @@ namespace XIVHubCompanion.Apps
             Opt("m", "Manipulation", "manipulation", true);
             Opt("h", "Heart and Soul", "heartAndSoul", false);
             Opt("q", "Quick Innovation", "quickInnovation", false);
-            bool req = _configuration.SolverRequireTargetQuality;
-            if (Check("cf_oreq", "Must reach full quality", ref req, new Vector2(x, y))) { _configuration.SolverRequireTargetQuality = req; _configuration.Save(); }
-            y += Math.Max(S(18), LH) + S(8);
+            if (_qualityMatters)
+            {
+                bool req = _configuration.SolverRequireTargetQuality;
+                if (Check("cf_oreq", "Must reach full quality", ref req, new Vector2(x, y))) { _configuration.SolverRequireTargetQuality = req; _configuration.Save(); }
+                y += Math.Max(S(18), LH) + S(8);
+            }
             Check("cf_orel", "Safe from bad luck (slower)", ref _ensureReliability, new Vector2(x, y));
-            y += Math.Max(S(18), LH) + S(8);
-            bool local = _configuration.SolverUseLocal;
-            if (Check("cf_oloc", "Solve on this PC (else the server)", ref local, new Vector2(x, y))) { _configuration.SolverUseLocal = local; _configuration.Save(); }
             y += Math.Max(S(18), LH) + S(14);
 
             // ---- solve --------------------------------------------------------------------------------------------
             float sh = S(40);
             if (_isSolving)
             {
-                if (_solveOnServer && (DateTime.Now - _lastQueuePoll).TotalSeconds > 2)
-                {
-                    _lastQueuePoll = DateTime.Now;
-                    Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var j = JObject.Parse(await _sender.SolverQueueAsync() ?? "{}");
-                            if (_solveOnServer) _queueText = $"Solving on the server... running {Int(j, "running")}, waiting {Int(j, "queued")}";
-                        }
-                        catch { _queueText = "Solving..."; }
-                    });
-                }
                 var sp = new Vector2(x, y);
                 Ui.Panel(dl, sp, sp + new Vector2(iw, sh), Theme.Gold.With(0.1f), Theme.GoldLine, 6f);
                 Ui.Dot(dl, sp + new Vector2(S(18), sh / 2), 4f, Theme.Gold, pulse: true);
-                Ui.Text(dl, sp + new Vector2(S(32), (sh - LH) / 2), Fit(_queueText, iw - S(40)), Theme.Gold);
+                Ui.Text(dl, sp + new Vector2(S(32), (sh - LH) / 2), Fit("Solving on this PC...", iw - S(40)), Theme.Gold);
             }
             else if (Ui.Button("cf_solve", "Solve macro", new Vector2(x, y), new Vector2(iw, sh), Kind.Primary, FontAwesomeIcon.Magic) && _ctxRecipe != 0)
                 RunSolver(prof, bc, bo, bp);
@@ -398,7 +447,7 @@ namespace XIVHubCompanion.Apps
                 y += S(14);
             }
             Bar("Progress", r?.progress ?? 0, _maxProgress, Theme.Crystal);
-            Bar("Quality", Math.Min(_maxQuality, (r?.quality ?? 0) + iq), _maxQuality, Theme.Violet);
+            if (_qualityMatters) Bar("Quality", Math.Min(_maxQuality, (r?.quality ?? 0) + iq), _maxQuality, Theme.Violet);
             Bar("Durability", r != null ? Math.Max(0, r.durability) : _maxDurability, _maxDurability, Theme.Warn);
             Bar("CP", r != null ? Math.Max(0, r.cp) : bp, bp, Theme.Gold);
             y += S(6);
@@ -469,9 +518,6 @@ namespace XIVHubCompanion.Apps
         {
             if (_isSolving) return;
             _isSolving = true;
-            _queueText = "Solving...";
-            _solveOnServer = false;
-            _lastQueuePoll = DateTime.MinValue;
             _solveError = null;
             uint rid = _ctxRecipe;
             var body = new
@@ -481,34 +527,22 @@ namespace XIVHubCompanion.Apps
                     level = Int(prof, "level", 100), craftsmanship = craft, control, cp,
                     manipulation = Flag(prof, "manipulation", true), heartAndSoul = Flag(prof, "heartAndSoul", false), quickInnovation = Flag(prof, "quickInnovation", false),
                 },
-                recipe = new { progress = _maxProgress, quality = _maxQuality, durability = _maxDurability, rlvl = _rlvl, isExpert = _expert },
-                hqInitialQuality = Math.Clamp(_configuration.SolverInitialQuality, 0, _maxQuality),
-                settings = new { requireTargetQuality = _configuration.SolverRequireTargetQuality, ensureReliability = _ensureReliability },
+                // no HQ version: quality 0 makes the solver go for the shortest progress-only macro
+                recipe = new { progress = _maxProgress, quality = _qualityMatters ? _maxQuality : 0, durability = _maxDurability, rlvl = _rlvl, isExpert = _expert },
+                hqInitialQuality = _qualityMatters ? Math.Clamp(_configuration.SolverInitialQuality, 0, _maxIq) : 0,
+                settings = new { requireTargetQuality = _qualityMatters && _configuration.SolverRequireTargetQuality, ensureReliability = _ensureReliability },
             };
             try
             {
-                string? json = null;
-                // 1. On this PC (aetherhold_solver.dll next to the plugin), 2. the Aetherhold server as fallback.
+                // Only on this PC (aetherhold_solver.dll next to the plugin); the plugin never uses the server solver.
                 var dir = System.IO.Path.GetDirectoryName(typeof(LocalSolver).Assembly.Location) ?? "";
-                if (_configuration.SolverUseLocal && LocalSolver.Available(dir))
+                if (!LocalSolver.Available(dir))
                 {
-                    try
-                    {
-                        _queueText = "Solving on this PC...";
-                        json = await LocalSolver.SolveAsync(Newtonsoft.Json.JsonConvert.SerializeObject(body));
-                        // "No macro for these stats" is a real answer; anything else (crash, bad answer) asks the server.
-                        var e0 = Str(JObject.Parse(json), "error");
-                        if (e0 is { Length: > 0 } && !e0.Contains("NoSolution")) json = null;
-                    }
-                    catch (Exception ex) { _log.Warning($"Local solver failed, asking the server: {ex.Message}"); json = null; }
+                    _log.Warning($"Local solver unavailable: {LocalSolver.LoadError}");
+                    _solveError = $"The solver file could not be loaded ({LocalSolver.LoadError}). Your antivirus may have blocked aetherhold_solver.dll; reinstalling the plugin brings it back.";
+                    return;
                 }
-                else if (LocalSolver.LoadError != null) _log.Info($"Local solver off ({LocalSolver.LoadError}), using the server.");
-                if (json == null)
-                {
-                    _queueText = "Solving on the server...";
-                    _solveOnServer = true;
-                    json = await _sender.SolveAsync(body);
-                }
+                string? json = await LocalSolver.SolveAsync(Newtonsoft.Json.JsonConvert.SerializeObject(body));
                 JObject? j = null;
                 try { if (json != null) j = JObject.Parse(json); } catch { }
                 var actions = (j?["actions"] as JArray)?.Select(a => a.ToString()).ToList();
@@ -522,7 +556,7 @@ namespace XIVHubCompanion.Apps
                 }
                 else _solveError = Str(j, "error") is { Length: > 0 } e
                     ? (e.Contains("NoSolution") ? "The solver could not find a macro for these stats. Try other settings." : e)
-                    : "No answer from Aetherhold. Try again in a moment.";
+                    : "The solver gave no answer. Try again.";
             }
             catch (Exception ex) { _solveError = "The solver failed: " + ex.Message; }
             finally { _isSolving = false; }
