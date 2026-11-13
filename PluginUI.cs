@@ -78,7 +78,7 @@ namespace XIVHubCompanion
             _apps.Add(new CollectionApp(sender, collectionService, textureProvider));
             _apps.Add(new RoutinesApp(sender, configuration));
             _apps.Add(new EventsApp(sender, objectTable, log, textureProvider, pluginInterface));
-            _apps.Add(new RaidPlannerApp());
+            _apps.Add(new RaidPlannerApp(sender, log));
             GatheringApp.OpenMarket = (id, name, icon, hq) => OpenMarketAppWithItem(id, name, icon, hq);
             _settingsApp = new SettingsApp(DrawSettings);
             _home = new HomeScreen(this, configuration, sender, dataManager, objectTable);
