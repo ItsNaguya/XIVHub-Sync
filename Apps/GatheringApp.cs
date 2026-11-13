@@ -2359,6 +2359,20 @@ namespace XIVHubCompanion.Apps
         public void Dispose()
         {
         }
+        /// <summary>The running route's next stop for the tablet's sleep view; null when no route runs.</summary>
+        public (string Item, int Have, int Need, string Zone, uint AetheryteId, bool Waiting)? RouteNextStop()
+        {
+            if (!_isRouteRunning || _configuration.GatheringActiveRoute.Count == 0) return null;
+            if (_isWaitingForNode) return ("", 0, 0, "", 0, true);
+            var t = GetNextRouteTarget();
+            if (t == null) return null;
+            var row = _dataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>()?.GetRowOrDefault(t.ItemId);
+            string name = row?.Name.ToString() ?? "";
+            TryGetLocationForItem(t.ItemId, out _, out int mapId, out _, out _, out string zone, out string coords, out _);
+            string where = string.IsNullOrEmpty(coords) ? zone ?? "" : $"{zone} ({coords})";
+            return (name, (int)GetItemCount(t.ItemId), (int)t.TargetQuantity, where, mapId > 0 ? GetAetheryteIdForMap(mapId) : 0, false);
+        }
+
         public void DrawWidgetOverlay(System.Numerics.Vector2 winPos, System.Numerics.Vector2 winSize)
         {
             if (!_isRouteRunning || _configuration.GatheringActiveRoute.Count == 0) return;
