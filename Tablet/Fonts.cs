@@ -69,29 +69,19 @@ namespace XIVHubCompanion.Tablet
         }
 
         /// <summary>
-        /// Scales ImGui widgets' text (Text, Button, ...) by <paramref name="scale"/> from a sharp font; dispose to undo.
-        /// Use instead of SetWindowFontScale above 1.
+        /// Scales ImGui widgets' text in an app screen to <paramref name="scale"/> × the tablet size; dispose to go back.
+        /// It does not swap in a baked font: widgets drawn while one of our handles stayed pushed came out blank
+        /// (2026-11-13), so sharp large text goes through <see cref="Text"/> (push, draw, pop at once).
         /// </summary>
         public static Scope Scale(float scale)
         {
-            float ws = ImGui.GetFontSize() / ImGui.GetFont().FontSize; // the window's current font scale
-            float px = ImGui.GetFontSize() * scale;
-            var h = Pick(_text, px);
-            if (h != null) h.Push();
-            ImGui.SetWindowFontScale(px / ImGui.GetFont().FontSize);
-            return new Scope(h, ws);
+            ImGui.SetWindowFontScale(PluginUI.AppScale * scale);
+            return new Scope();
         }
 
         public readonly struct Scope : IDisposable
         {
-            private readonly IFontHandle? _h;
-            private readonly float _ws;
-            public Scope(IFontHandle? h, float ws) { _h = h; _ws = ws; }
-            public void Dispose()
-            {
-                _h?.Pop();
-                ImGui.SetWindowFontScale(_ws);
-            }
+            public void Dispose() => ImGui.SetWindowFontScale(PluginUI.AppScale);
         }
     }
 }
