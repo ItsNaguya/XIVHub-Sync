@@ -57,7 +57,7 @@ namespace XIVHubCompanion.Apps
                 Ui.Panel(dl, top, top + new Vector2(avail.X, S(120)), Theme.Night2.With(0.6f));
                 Ui.Text(dl, top + S(18, 18), "Your pipeline is empty.", Theme.Text);
                 Ui.Text(dl, top + new Vector2(S(18), S(24) + LH), "Add recipes and send them here: you get every material, where to find it and what it costs.", Theme.Text3, 0.9f);
-                if (Ui.Button("cf_goadd", "Add recipes", top + new Vector2(S(18), S(70)), new Vector2(S(150), S(32)), Kind.Primary, FontAwesomeIcon.Search)) { _view = 0; _sender.SetState(SecView, Views[0]); }
+                if (Ui.Button("cf_goadd", "Add recipes", top + new Vector2(S(18), S(70)), new Vector2(S(150), S(32)), Kind.Primary, FontAwesomeIcon.Search)) SetView(0);
                 Advance(top, S(120));
                 return;
             }

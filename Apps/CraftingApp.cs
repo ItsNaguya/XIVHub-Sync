@@ -39,8 +39,17 @@ namespace XIVHubCompanion.Apps
         private readonly IPluginLog _log;
         private readonly ITextureProvider _textureProvider;
 
-        private int _view;
-        private bool _viewLoaded;
+        // Tab follows crafting.view live (website switch shows next frame); local fallback when signed out / unset.
+        private int _localView;
+        private int CurrentView
+        {
+            get
+            {
+                int i = Array.IndexOf(Views, (_sender.GetState(SecView) as JValue)?.Value as string);
+                return i < 0 ? _localView : i;
+            }
+        }
+        private void SetView(int i) { _localView = i; _sender.SetState(SecView, Views[i]); }
 
         public CraftingApp(HubClient sender, Configuration configuration, IDataManager dataManager, IPluginLog log, ITextureProvider textureProvider)
         {
@@ -54,16 +63,10 @@ namespace XIVHubCompanion.Apps
         public void Draw()
         {
             SyncIn();
-            if (!_viewLoaded && _sender.StateLoaded)
-            {
-                int i = Array.IndexOf(Views, (_sender.GetState(SecView) as JValue)?.Value as string);
-                if (i >= 0) _view = i;
-                _viewLoaded = true;
-            }
-
             DrawTabs();
-            if (_view == 0) DrawSearchView();
-            else if (_view == 1) DrawPipelineView();
+            int view = CurrentView;
+            if (view == 0) DrawSearchView();
+            else if (view == 1) DrawPipelineView();
             else DrawSolverView();
         }
 
@@ -73,13 +76,11 @@ namespace XIVHubCompanion.Apps
             float w = ImGui.GetContentRegionAvail().X, h = S(34), gap = S(8), bw = (w - gap * 2) / 3;
             string[] labels = { _draft.Count > 0 ? $"Add recipes ({_draft.Count})" : "Add recipes", $"Pipeline ({_targets.Count})", "Solver" };
             FontAwesomeIcon[] icons = { FontAwesomeIcon.Search, FontAwesomeIcon.ListUl, FontAwesomeIcon.Magic };
+            int cur = CurrentView;
             for (int i = 0; i < 3; i++)
             {
-                if (Ui.Button("cf_tab" + i, labels[i], p + new Vector2(i * (bw + gap), 0), new Vector2(bw, h), i == _view ? Kind.Primary : Kind.Ghost, icons[i]) && i != _view)
-                {
-                    _view = i;
-                    _sender.SetState(SecView, Views[i]);
-                }
+                if (Ui.Button("cf_tab" + i, labels[i], p + new Vector2(i * (bw + gap), 0), new Vector2(bw, h), i == cur ? Kind.Primary : Kind.Ghost, icons[i]) && i != cur)
+                    SetView(i);
             }
             Advance(p, h + S(6));
         }

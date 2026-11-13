@@ -245,8 +245,7 @@ namespace XIVHubCompanion.Apps
                 WritePipeline(rebuild: true);
                 _draft.Clear();
                 WriteDraft();
-                _view = 1;
-                _sender.SetState(SecView, Views[1]);
+                SetView(1);
             }
             if (canSend) y += sendH + S(10);
 
