@@ -46,6 +46,8 @@ namespace XIVHubCompanion
         private DateTime _hoverStartTime = DateTime.MinValue;
 
         public static float AppScale { get; private set; } = 1.0f;
+        /// <summary>Window font scale inside the tablet: 1 when the baked body font is pushed, else stretch to the same size.</summary>
+        public static float FontScale { get; private set; } = 1.0f;
         public static bool HideScrollbars { get; private set; }
         public static float Scaled(float value) => value * AppScale;
         public static Vector2 Scaled(Vector2 value) => value * AppScale;
@@ -196,7 +198,9 @@ namespace XIVHubCompanion
             if (ImGui.Begin("Aetherhold###NAGU-PAD Premium Tablet", ref settingsVisible, ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
             {
                 Theme.Push();
-                ImGui.SetWindowFontScale(AppScale);
+                bool body = Fonts.PushBody(AppScale);
+                FontScale = body ? 1f : AppScale * Fonts.TabletText;
+                ImGui.SetWindowFontScale(FontScale);
                 CheckVerification();
 
                 var win = ImGui.GetWindowPos();
@@ -220,6 +224,7 @@ namespace XIVHubCompanion
                 DrawDock(sMin, sMax, locked);
                 if (_shadeOpen && !locked) DrawShade(cMin, cMax);
                 DrawStatusBar(sMin, sMax);
+                if (body) Fonts.PopBody();
                 Theme.Pop();
             }
             ImGui.End();
@@ -456,7 +461,7 @@ namespace XIVHubCompanion
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
             if (UIHelper.BeginSmoothChild("AppScreen", cMax - cMin - new Vector2(pad.X * 2, headH + pad.Y * 2), false, flags))
             {
-                ImGui.SetWindowFontScale(AppScale);
+                ImGui.SetWindowFontScale(FontScale);
                 app.Draw();
             }
             ImGui.EndChild();
@@ -469,7 +474,7 @@ namespace XIVHubCompanion
             ImGui.SetCursorScreenPos(cMin);
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Theme.Night0.With(0.45f));
             ImGui.BeginChild("Shade", cMax - cMin, false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
-            ImGui.SetWindowFontScale(AppScale);
+            ImGui.SetWindowFontScale(FontScale);
             var dl = ImGui.GetWindowDrawList();
             float w = Ui.S(400), pad = Ui.S(14);
             var pa = new Vector2(cMax.X - w - Ui.S(10), cMin.Y + Ui.S(6));
@@ -500,7 +505,7 @@ namespace XIVHubCompanion
 
             ImGui.SetCursorScreenPos(new Vector2(pa.X + pad, y));
             ImGui.BeginChild("shade_list", new Vector2(w - pad * 2, pb.Y - y - pad), false, configuration.HideScrollbars ? ImGuiWindowFlags.NoScrollbar : ImGuiWindowFlags.None);
-            ImGui.SetWindowFontScale(AppScale);
+            ImGui.SetWindowFontScale(FontScale);
             var ldl = ImGui.GetWindowDrawList();
             if (list.Count == 0) Ui.Text(ldl, ImGui.GetCursorScreenPos() + Ui.S(0, 6), "All quiet. Alarms, retainers and events show up here.", Theme.Text3, 0.9f);
             foreach (var n in list)
@@ -530,7 +535,7 @@ namespace XIVHubCompanion
             ImGui.SetCursorScreenPos(cMin);
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
             ImGui.BeginChild("SignIn", cMax - cMin, false, ImGuiWindowFlags.NoScrollbar);
-            ImGui.SetWindowFontScale(AppScale);
+            ImGui.SetWindowFontScale(FontScale);
             var dl = ImGui.GetWindowDrawList();
             var c = (cMin + cMax) / 2;
             var et = EorzeaTimeHelper.GetEorzeaTime();

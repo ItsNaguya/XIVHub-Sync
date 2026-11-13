@@ -58,7 +58,7 @@ namespace XIVHubCompanion.Tablet
             ImGui.SetCursorScreenPos(min);
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
             ImGui.BeginChild("Home", max - min, false, _config.HideScrollbars ? ImGuiWindowFlags.NoScrollbar : ImGuiWindowFlags.None);
-            ImGui.SetWindowFontScale(PluginUI.AppScale);
+            ImGui.SetWindowFontScale(PluginUI.FontScale);
             var dl = ImGui.GetWindowDrawList();
             float pad = Ui.S(22), gap = Ui.S(14), top = min.Y - ImGui.GetScrollY();
             float x0 = min.X + pad, w = max.X - min.X - pad * 2 - (ImGui.GetScrollMaxY() > 0 && !_config.HideScrollbars ? ImGui.GetStyle().ScrollbarSize : 0);

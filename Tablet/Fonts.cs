@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -18,9 +19,16 @@ namespace XIVHubCompanion.Tablet
         private static IFontHandle[] _text = Array.Empty<IFontHandle>();
         private static IFontHandle[] _icon = Array.Empty<IFontHandle>();
         private static float _basePx;
+        private static IUiBuilder? _ui;
+
+        /// <summary>Tablet text vs Dalamud's default size: a bit larger, so it stays readable on 4K screens.</summary>
+        public const float TabletText = 1.15f;
+        private static readonly Dictionary<int, IFontHandle> _body = new();
+        private static IFontHandle? _bodyPushed;
 
         public static void Init(IUiBuilder ui)
         {
+            _ui = ui;
             _basePx = ui.FontDefaultSizePx;
             _text = Mults.Select(m => ui.FontAtlas.NewDelegateFontHandle(e => e.OnPreBuild(tk => tk.AddDalamudDefaultFont(_basePx * m, null)))).ToArray();
             _icon = Mults.Select(m => ui.FontAtlas.NewDelegateFontHandle(e => e.OnPreBuild(tk => tk.AddFontAwesomeIconFont(new SafeFontConfig { SizePx = _basePx * m })))).ToArray();
@@ -28,8 +36,35 @@ namespace XIVHubCompanion.Tablet
 
         public static void Dispose()
         {
-            foreach (var h in _text.Concat(_icon)) h.Dispose();
+            foreach (var h in _text.Concat(_icon).Concat(_body.Values)) h.Dispose();
             _text = _icon = Array.Empty<IFontHandle>();
+            _body.Clear();
+        }
+
+        /// <summary>
+        /// Pushes the tablet's body font, baked at the tablet's text size (one handle per size setting, built on first
+        /// use). Call right after the tablet window's Begin; false while it is still building (then scale instead).
+        /// </summary>
+        public static bool PushBody(float appScale)
+        {
+            if (_ui == null) return false;
+            int key = (int)MathF.Round(appScale * TabletText * 100);
+            if (!_body.TryGetValue(key, out var h))
+            {
+                float px = _basePx * key / 100f;
+                h = _ui.FontAtlas.NewDelegateFontHandle(e => e.OnPreBuild(tk => tk.AddDalamudDefaultFont(px, null)));
+                _body[key] = h;
+            }
+            if (!h.Available) return false;
+            h.Push();
+            _bodyPushed = h;
+            return true;
+        }
+
+        public static void PopBody()
+        {
+            _bodyPushed?.Pop();
+            _bodyPushed = null;
         }
 
         /// <summary>The smallest baked handle at least <paramref name="px"/> tall, or null when the current font is enough.</summary>
@@ -75,13 +110,13 @@ namespace XIVHubCompanion.Tablet
         /// </summary>
         public static Scope Scale(float scale)
         {
-            ImGui.SetWindowFontScale(PluginUI.AppScale * scale);
+            ImGui.SetWindowFontScale(PluginUI.FontScale * scale);
             return new Scope();
         }
 
         public readonly struct Scope : IDisposable
         {
-            public void Dispose() => ImGui.SetWindowFontScale(PluginUI.AppScale);
+            public void Dispose() => ImGui.SetWindowFontScale(PluginUI.FontScale);
         }
     }
 }
