@@ -58,4 +58,11 @@
     <EmbeddedResource Include="images\mark.png" LogicalName="Aetherhold.mark.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Local crafting solver (raphael-rs, Apache-2.0, built from Aetherhold website/solver). Solves on the
+         player's PC; the Aetherhold server stays the fallback. -->
+    <None Include="native\aetherhold_solver.dll" CopyToOutputDirectory="PreserveNewest" Link="aetherhold_solver.dll" />
+    <None Include="native\LICENSE-raphael-rs.txt" CopyToOutputDirectory="PreserveNewest" Link="LICENSE-raphael-rs.txt" />
+  </ItemGroup>
+
 </Project>

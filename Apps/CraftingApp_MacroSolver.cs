@@ -18,6 +18,7 @@ namespace XIVHubCompanion.Apps
         private volatile bool _isSolving;
         private DateTime _lastQueuePoll = DateTime.MinValue;
         private string _queueText = "Solving...";
+        private volatile bool _solveOnServer;
         private string? _solveError;
         private SolveResult? _solveResult;
         private uint _solveRecipe;
@@ -326,13 +327,16 @@ namespace XIVHubCompanion.Apps
             if (Check("cf_oreq", "Must reach full quality", ref req, new Vector2(x, y))) { _configuration.SolverRequireTargetQuality = req; _configuration.Save(); }
             y += Math.Max(S(18), LH) + S(8);
             Check("cf_orel", "Safe from bad luck (slower)", ref _ensureReliability, new Vector2(x, y));
+            y += Math.Max(S(18), LH) + S(8);
+            bool local = _configuration.SolverUseLocal;
+            if (Check("cf_oloc", "Solve on this PC (else the server)", ref local, new Vector2(x, y))) { _configuration.SolverUseLocal = local; _configuration.Save(); }
             y += Math.Max(S(18), LH) + S(14);
 
             // ---- solve --------------------------------------------------------------------------------------------
             float sh = S(40);
             if (_isSolving)
             {
-                if ((DateTime.Now - _lastQueuePoll).TotalSeconds > 2)
+                if (_solveOnServer && (DateTime.Now - _lastQueuePoll).TotalSeconds > 2)
                 {
                     _lastQueuePoll = DateTime.Now;
                     Task.Run(async () =>
@@ -340,7 +344,7 @@ namespace XIVHubCompanion.Apps
                         try
                         {
                             var j = JObject.Parse(await _sender.SolverQueueAsync() ?? "{}");
-                            _queueText = $"Solving... running {Int(j, "running")}, waiting {Int(j, "queued")}";
+                            if (_solveOnServer) _queueText = $"Solving on the server... running {Int(j, "running")}, waiting {Int(j, "queued")}";
                         }
                         catch { _queueText = "Solving..."; }
                     });
@@ -466,6 +470,7 @@ namespace XIVHubCompanion.Apps
             if (_isSolving) return;
             _isSolving = true;
             _queueText = "Solving...";
+            _solveOnServer = false;
             _lastQueuePoll = DateTime.MinValue;
             _solveError = null;
             uint rid = _ctxRecipe;
@@ -482,7 +487,28 @@ namespace XIVHubCompanion.Apps
             };
             try
             {
-                var json = await _sender.SolveAsync(body);
+                string? json = null;
+                // 1. On this PC (aetherhold_solver.dll next to the plugin), 2. the Aetherhold server as fallback.
+                var dir = System.IO.Path.GetDirectoryName(typeof(LocalSolver).Assembly.Location) ?? "";
+                if (_configuration.SolverUseLocal && LocalSolver.Available(dir))
+                {
+                    try
+                    {
+                        _queueText = "Solving on this PC...";
+                        json = await LocalSolver.SolveAsync(Newtonsoft.Json.JsonConvert.SerializeObject(body));
+                        // "No macro for these stats" is a real answer; anything else (crash, bad answer) asks the server.
+                        var e0 = Str(JObject.Parse(json), "error");
+                        if (e0 is { Length: > 0 } && !e0.Contains("NoSolution")) json = null;
+                    }
+                    catch (Exception ex) { _log.Warning($"Local solver failed, asking the server: {ex.Message}"); json = null; }
+                }
+                else if (LocalSolver.LoadError != null) _log.Info($"Local solver off ({LocalSolver.LoadError}), using the server.");
+                if (json == null)
+                {
+                    _queueText = "Solving on the server...";
+                    _solveOnServer = true;
+                    json = await _sender.SolveAsync(body);
+                }
                 JObject? j = null;
                 try { if (json != null) j = JObject.Parse(json); } catch { }
                 var actions = (j?["actions"] as JArray)?.Select(a => a.ToString()).ToList();
@@ -494,7 +520,9 @@ namespace XIVHubCompanion.Apps
                     };
                     _solveRecipe = rid;
                 }
-                else _solveError = Str(j, "error") is { Length: > 0 } e ? e : "No answer from Aetherhold. Try again in a moment.";
+                else _solveError = Str(j, "error") is { Length: > 0 } e
+                    ? (e.Contains("NoSolution") ? "The solver could not find a macro for these stats. Try other settings." : e)
+                    : "No answer from Aetherhold. Try again in a moment.";
             }
             catch (Exception ex) { _solveError = "The solver failed: " + ex.Message; }
             finally { _isSolving = false; }
