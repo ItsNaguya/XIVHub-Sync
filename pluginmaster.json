@@ -1,0 +1,30 @@
+[{
+  "LastUpdate": 1794612697,
+  "ApplicableVersion": "any",
+  "DalamudApiLevel": 15,
+  "InternalName": "XIVHubCompanion",
+  "Tags": [
+    "aetherhold",
+    "sync",
+    "utility",
+    "companion",
+    "market",
+    "gathering",
+    "crafting"
+  ],
+  "DownloadLinkTesting": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "RepoUrl": "https://github.com/ItsNaguya/XIVHub-Sync",
+  "DownloadLinkUpdate": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "DownloadLinkInstall": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/repo/latest.zip",
+  "DownloadCount": 0,
+  "LoadPriority": 0,
+  "Changelog": "3.0.0.1: Settings rebuilt in the tablet look (Look, Dock, Behaviour, Apps, Account & data). Live sync no longer flashes 'Connecting…' when the server drops an idle connection. 3.0: a new tablet with a home screen, widgets, a dock and a sleep view. Every app rebuilt in the website's look and kept in step with aetherhold.naguya.tech both ways: Crafting (with a local solver), Market, Gathering, Collection, Routines, Events and a brand-new Raid Planner. Larger, sharper text for 4K screens. Command: /aetherhold (/xivhub still works).",
+  "AssemblyVersion": "3.0.0.1",
+  "IconUrl": "https://raw.githubusercontent.com/ItsNaguya/XIVHub-Sync/main/images/icon.png",
+  "Punchline": "Aetherhold, in game. Because clicking sync is so 2023.",
+  "LoadSync": false,
+  "Description": "Your FFXIV companion. Syncs your character to Aetherhold (aetherhold.naguya.tech) live and brings its tools into the game: market and shopping route, gathering timers, crafting and macro solver, collections, routines, events and raids. Cart, routines and crafter stats stay in step with the website.",
+  "LoadRequiredState": 0,
+  "Name": "Aetherhold",
+  "Author": "Naguya"
+}]
