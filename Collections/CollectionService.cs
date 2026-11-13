@@ -81,8 +81,19 @@ namespace XIVHubCompanion.Collections
                     unlocked = achStruct->IsComplete((int)row.RowId);
                 }
 
-                string cat = row.AchievementCategory.Value.Name.ToString();
+                string cat = "", kind = "";
+                try
+                {
+                    var c = row.AchievementCategory.ValueNullable;
+                    if (c != null)
+                    {
+                        cat = c.Value.Name.ToString();
+                        kind = c.Value.AchievementKind.ValueNullable?.Name.ToString() ?? "";
+                    }
+                }
+                catch { }
                 if (string.IsNullOrEmpty(cat)) cat = "General";
+                if (string.IsNullOrEmpty(kind)) kind = "Other";
 
                 list.Add(new CollectionItem
                 {
@@ -92,7 +103,9 @@ namespace XIVHubCompanion.Collections
                     IconId = (uint)row.Icon,
                     IsUnlocked = unlocked,
                     Category = CollectionCategory.Achievements,
-                    Subcategory = cat
+                    Subcategory = cat,
+                    Group = kind,
+                    Points = row.Points
                 });
             }
             return list;
