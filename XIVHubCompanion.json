@@ -19,5 +19,5 @@
     "gathering",
     "crafting"
   ],
-  "Changelog": "3.0: renamed to Aetherhold with the website's look; talks to aetherhold.naguya.tech; cart, routines, venture timers and crafter stats shared with the website; caught-fish log fixed; crafting prices load again; token no longer shown in full. Command: /aetherhold (/xivhub still works)."
+  "Changelog": "3.0: a new tablet with a home screen, widgets, a dock and a sleep view. Every app rebuilt in the website's look and kept in step with aetherhold.naguya.tech both ways: Crafting (with a local solver), Market, Gathering, Collection, Routines, Events and a brand-new Raid Planner. Larger, sharper text for 4K screens. Command: /aetherhold (/xivhub still works)."
 }
