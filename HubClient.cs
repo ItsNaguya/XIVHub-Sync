@@ -25,7 +25,9 @@ namespace XIVHubCompanion
         public static readonly string Version = typeof(HubClient).Assembly.GetName().Version?.ToString() ?? "3.0.0.0";
         public static readonly string UserAgent = $"Aetherhold/{Version}";
 
-        private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+        // The web server closes idle connections after 5 s; drop ours sooner so a sync never goes out on one it just
+        // closed ("An error occurred while sending the request").
+        private readonly HttpClient _http = new(new SocketsHttpHandler { PooledConnectionIdleTimeout = TimeSpan.FromSeconds(3) }) { Timeout = TimeSpan.FromSeconds(15) };
         private readonly HttpClient _long = new() { Timeout = Timeout.InfiniteTimeSpan };
         private readonly IPluginLog _log;
         private CancellationTokenSource? _streamCts;
@@ -134,7 +136,12 @@ namespace XIVHubCompanion
         {
             try
             {
-                using var res = await _http.PostAsync(Url("/api/local/sync"), new StringContent(JsonConvert.SerializeObject(data), Encoding.UTF8, "application/json"));
+                var json = JsonConvert.SerializeObject(data);
+                HttpResponseMessage sent;
+                try { sent = await _http.PostAsync(Url("/api/local/sync"), new StringContent(json, Encoding.UTF8, "application/json")); }
+                catch (HttpRequestException) // connection dropped before an answer: try once more on a fresh one
+                { sent = await _http.PostAsync(Url("/api/local/sync"), new StringContent(json, Encoding.UTF8, "application/json")); }
+                using var res = sent;
                 LastSyncTime = DateTime.Now;
                 TotalSyncs++;
                 if (res.StatusCode == HttpStatusCode.Unauthorized) { FailedSyncs++; MarkAuthRejected(); }
