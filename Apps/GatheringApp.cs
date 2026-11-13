@@ -413,6 +413,9 @@ namespace XIVHubCompanion.Apps
         private bool HasAlarm(string id) => _alarms.TryGetValue(id, out var v) && v;
         private void ToggleFav(string id) { _favs[id] = !IsFav(id); WriteFavs(); }
         private void ToggleAlarm(string id) { _alarms[id] = !HasAlarm(id); WriteAlarms(); }
+        /// <summary>Settings > Data & resets (website clearAlarms).</summary>
+        public int AlarmCount => _alarms.Count(kv => kv.Value);
+        public void ClearAlarms() { _alarms.Clear(); WriteAlarms(); }
 
         /// <summary>Website addToGatheringRoute: one line per item, the amount adds up.</summary>
         private void AddToRoute(int id, string name, string icon, int level, int qty = 1)

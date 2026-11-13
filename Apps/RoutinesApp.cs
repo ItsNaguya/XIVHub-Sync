@@ -224,7 +224,8 @@ namespace XIVHubCompanion.Apps
             return _custom.FirstOrDefault(t => t.Id == id)?.Type;
         }
 
-        private void ResetChecklist(string type)
+        /// <summary>Untick every task of a type (also Settings > Data & resets, like the website).</summary>
+        public void ResetChecklist(string type)
         {
             foreach (var k in _config.RoutinesChecklist.Keys.Where(k => TypeOf(k) == type).ToList()) _config.RoutinesChecklist.Remove(k);
             WriteTicks();

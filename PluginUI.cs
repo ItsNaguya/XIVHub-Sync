@@ -763,6 +763,7 @@ namespace XIVHubCompanion
         private readonly Action _draw;
         public SettingsApp(Action draw) => _draw = draw;
         public string Name => "Settings";
+        public bool LargeText => true;
         public string Icon => ((char)FontAwesomeIcon.Cog).ToString();
         public bool HasSettings => false;
         public void DrawSettings() { }
