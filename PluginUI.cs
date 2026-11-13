@@ -603,7 +603,9 @@ namespace XIVHubCompanion
         // ---- sleep view (minimised) --------------------------------------------------------------------------------
         private void DrawSleep()
         {
-            var size = new Vector2(300, 64);
+            // a running gathering route adds a second row: next stop and a teleport button (as in 2.1)
+            var stop = configuration.ShowMinimizedOverlay && configuration.ShowMinimizedGatheringOverlay ? App<GatheringApp>()?.RouteNextStop() : null;
+            var size = new Vector2(300, stop != null ? 104 : 64);
             ImGui.SetNextWindowSize(size, ImGuiCond.Always);
             ImGui.PushStyleColor(ImGuiCol.WindowBg, Vector4.Zero);
             ImGui.PushStyleColor(ImGuiCol.Border, Vector4.Zero);
@@ -642,6 +644,28 @@ namespace XIVHubCompanion
                 {
                     Ui.Icon(dl, new Vector2(x, y + 1), FontAwesomeIcon.Star, Theme.Gold, 0.75f);
                     Ui.Text(dl, new Vector2(x + 16, y), $"{g.ActiveFavoriteCount} up", Theme.Gold, 0.82f);
+                }
+
+                if (stop is { } s)
+                {
+                    float ry = p.Y + 62;
+                    dl.AddLine(new Vector2(p.X + 14, ry), new Vector2(p.X + size.X - 14, ry), Theme.CrystalLine.U32(), 1);
+                    Ui.Icon(dl, new Vector2(p.X + 18, ry + 11), FontAwesomeIcon.Route, Theme.Live, 0.85f);
+                    if (s.Waiting) Ui.Text(dl, new Vector2(p.X + 44, ry + 10), "Waiting for the next node…", Theme.Text2, 0.9f);
+                    else
+                    {
+                        string count = $"{s.Have}/{s.Need}";
+                        float maxW = (s.AetheryteId != 0 ? 236 : 270) - 44 - Ui.TextSize(count, 0.85f).X - 10;
+                        string item = s.Item;
+                        while (item.Length > 1 && Ui.TextSize(item, 0.95f).X > maxW) item = item[..^2] + "…";
+                        Ui.Text(dl, new Vector2(p.X + 44, ry + 4), item, Theme.Text, 0.95f);
+                        Ui.Text(dl, new Vector2(p.X + 44 + Ui.TextSize(item, 0.95f).X + 8, ry + 6), count, s.Have >= s.Need ? Theme.Live : Theme.Text2, 0.85f);
+                        string zone = s.Zone;
+                        while (zone.Length > 1 && Ui.TextSize(zone, 0.78f).X > (s.AetheryteId != 0 ? 190 : 226)) zone = zone[..^2] + "…";
+                        Ui.Text(dl, new Vector2(p.X + 44, ry + 22), zone, Theme.Text3, 0.78f);
+                        if (s.AetheryteId != 0 && Ui.IconButton("sleep_tp", FontAwesomeIcon.PlaneDeparture, new Vector2(p.X + 250, ry + 7), 28, "Teleport to the next stop", Theme.Gold))
+                            GatheringApp.TeleportToAetheryte(s.AetheryteId);
+                    }
                 }
 
                 int unseen = Notifications.Unseen;
