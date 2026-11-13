@@ -48,6 +48,8 @@ namespace XIVHubCompanion
         public static float AppScale { get; private set; } = 1.0f;
         /// <summary>Window font scale inside the tablet: 1 when the baked body font is pushed, else stretch to the same size.</summary>
         public static float FontScale { get; private set; } = 1.0f;
+        /// <summary>Apps whose layout fits the tablet's larger text (Fonts.TabletText); the others draw at the old size.</summary>
+        private static readonly HashSet<string> LargeTextApps = new();
         public static bool HideScrollbars { get; private set; }
         public static float Scaled(float value) => value * AppScale;
         public static Vector2 Scaled(Vector2 value) => value * AppScale;
@@ -461,8 +463,12 @@ namespace XIVHubCompanion
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
             if (UIHelper.BeginSmoothChild("AppScreen", cMax - cMin - new Vector2(pad.X * 2, headH + pad.Y * 2), false, flags))
             {
+                // apps keep the old text size until their own rebuild fits the larger one (then add them to LargeTextApps)
+                float shell = FontScale;
+                if (!LargeTextApps.Contains(app.Name)) FontScale = shell / Fonts.TabletText;
                 ImGui.SetWindowFontScale(FontScale);
                 app.Draw();
+                FontScale = shell;
             }
             ImGui.EndChild();
             ImGui.PopStyleColor();
