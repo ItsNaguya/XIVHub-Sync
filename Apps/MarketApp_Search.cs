@@ -56,7 +56,8 @@ namespace XIVHubCompanion.Apps
                 DrawSearchBox(top, lw);
                 float y = top.Y + FrameH + S(10);
                 ImGui.SetCursorScreenPos(new Vector2(top.X, y));
-                if (UIHelper.BeginSmoothChild("mk_cats", new Vector2(lw, top.Y + avail.Y - y))) DrawCategoryGroups(lw - S(10));
+                float catH = top.Y + avail.Y - y;
+                if (UIHelper.BeginSmoothChild("mk_cats", new Vector2(lw, catH), false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse)) DrawCategoryGroups(lw, catH);
                 ImGui.EndChild();
                 // right: results
                 float rx = top.X + lw + S(14), rw = avail.X - lw - S(14);
@@ -99,7 +100,7 @@ namespace XIVHubCompanion.Apps
             }
         }
 
-        private void DrawCategoryGroups(float w)
+        private void DrawCategoryGroups(float w, float fitH = 0)
         {
             var dl = Ui.Dl;
             var p = ImGui.GetCursorScreenPos();
@@ -113,31 +114,34 @@ namespace XIVHubCompanion.Apps
                 return;
             }
 
-            float cell = S(40), gap = S(6), pad = S(12);
-            foreach (var (gid, label) in CategoryGroups)
+            float gap = S(4), pad = S(10), capsH = Ui.TextSize("A", 0.78f).Y;
+            var groups = CategoryGroups.Select(g => (g.Id, g.Label, cats: _categories.Where(c => c.category == g.Id).ToList())).Where(g => g.cats.Count > 0).ToList();
+            float GroupH(float c, int n) { int pr = Math.Max(1, (int)((w - pad * 2 + gap) / (c + gap))); int rw = (n + pr - 1) / pr; return pad + capsH + S(6) + rw * (c + gap) - gap + pad; }
+            float TotalH(float c) => groups.Sum(g => GroupH(c, g.cats.Count) + S(6)) - S(6);
+            // largest icon size (up to 34 px) at which every group fits without scrolling
+            float cell = S(34);
+            if (fitH > 0) while (cell > S(14) && TotalH(cell) > fitH - S(2)) cell -= S(1);
+            foreach (var (gid, label, cats) in groups)
             {
-                var cats = _categories.Where(c => c.category == gid).ToList();
-                if (cats.Count == 0) continue;
                 int perRow = Math.Max(1, (int)((w - pad * 2 + gap) / (cell + gap)));
-                int rows = (cats.Count + perRow - 1) / perRow;
-                float capsH = Ui.TextSize("A", 0.78f).Y;
-                float h = pad + capsH + S(8) + rows * (cell + gap) - gap + pad;
+                float h = GroupH(cell, cats.Count);
                 var a = new Vector2(p.X, y);
                 Ui.Panel(dl, a, a + new Vector2(w, h), Theme.Night2.With(0.6f));
                 Ui.Caps(dl, a + new Vector2(pad, pad), label);
                 for (int i = 0; i < cats.Count; i++)
                 {
                     var c = cats[i];
-                    var cp = a + new Vector2(pad + (i % perRow) * (cell + gap), pad + capsH + S(8) + (i / perRow) * (cell + gap));
+                    var cp = a + new Vector2(pad + (i % perRow) * (cell + gap), pad + capsH + S(6) + (i / perRow) * (cell + gap));
                     bool sel = _showResults == 2 && _selectedCategory?.id == c.id;
                     bool clicked = Ui.Hit("mk_cat" + c.id, cp, new Vector2(cell, cell), out float hv);
                     Ui.Tooltip(c.name);
                     dl.AddRectFilled(cp, cp + new Vector2(cell, cell), (sel ? Ui.Accent.With(0.28f) : Theme.Night1.With(0.6f + 0.3f * hv)).U32(), S(6));
                     if (sel || hv > 0.01f) dl.AddRect(cp, cp + new Vector2(cell, cell), (sel ? Ui.Accent : Theme.Text2.With(0.4f * hv)).U32(), S(6), 0, S(1));
-                    GameIcon(c.icon, cp + S(5, 5), cell - S(10));
+                    float ip = Math.Max(S(2), cell * 0.1f);
+                    GameIcon(c.icon, cp + new Vector2(ip, ip), cell - ip * 2);
                     if (clicked) { LoadCategory(c, 1); if (avail_narrow()) _showCategories = false; }
                 }
-                y += h + S(8);
+                y += h + S(6);
             }
             Advance(p, y - p.Y);
 
