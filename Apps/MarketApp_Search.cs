@@ -228,12 +228,16 @@ namespace XIVHubCompanion.Apps
         }
 
         /// <summary>One item: icon, name and level open the prices; star, amount and Add on the right.</summary>
-        private void ItemRow(int id, string name, string icon, int? level, int? ilvl, bool? canBeHq, float w, bool showFav = true)
+        private void ItemRow(int id, string name, string icon, int? level, int? ilvl, bool? canBeHq, float w, bool showFav = true, bool prices = false)
         {
             var dl = Ui.Dl;
             var p = ImGui.GetCursorScreenPos();
             string sub = LevelText(level, ilvl);
-            float h = Math.Max(S(48), (sub.Length > 0 ? LH * 2 + S(4) : LH) + S(16));
+            float sh = Ui.TextSize("A", 0.85f).Y;
+            // favourites show the lowest price instead of the level: NQ line, HQ line (+ average)
+            int lines = prices ? 2 : sub.Length > 0 ? 1 : 0;
+            float textH = LH + lines * (sh + S(3));
+            float h = Math.Max(S(48), textH + S(16));
             float addW = S(64), star = S(30);
             float right = addW + S(8) + StepperW + S(8) + (showFav ? star + S(6) : 0);
             bool compact = w - right < S(150);
@@ -244,12 +248,11 @@ namespace XIVHubCompanion.Apps
             float ic = S(36);
             GameIcon(icon, p + new Vector2(S(10), (h - ic) / 2), ic);
             float tx = p.X + S(56), tw = w - right - S(70);
-            if (sub.Length > 0)
-            {
-                Ui.Text(dl, new Vector2(tx, p.Y + (h - LH * 2 - S(4)) / 2), Fit(name, tw), Theme.Text);
-                Ui.Text(dl, new Vector2(tx, p.Y + (h - LH * 2 - S(4)) / 2 + LH + S(4)), Fit(sub, tw, 0.85f), Theme.Text3, 0.85f);
-            }
-            else Ui.Text(dl, new Vector2(tx, p.Y + (h - LH) / 2), Fit(name, tw), Theme.Text);
+            float ty = p.Y + (h - textH) / 2;
+            Ui.Text(dl, new Vector2(tx, ty), Fit(name, tw), Theme.Text);
+            ty += LH + S(3);
+            if (prices) DrawFavPrice(id, new Vector2(tx, ty), tw, sh);
+            else if (sub.Length > 0) Ui.Text(dl, new Vector2(tx, ty), Fit(sub, tw, 0.85f), Theme.Text3, 0.85f);
             if (open) { SelectMarketItem(new MarketSearchItem { id = id, name = name, icon = icon, level = level, ilvl = ilvl, canBeHq = canBeHq }); }
 
             float x = p.X + w - S(8) - addW;
@@ -279,6 +282,85 @@ namespace XIVHubCompanion.Apps
 
         private readonly Dictionary<int, DateTime> _addedAt = new();
 
+        // ---- favourite prices (website: /api/market/batch, lowest NQ/HQ listing + average, 100 ids per call) --------
+        private sealed record FavPrice(int NqPrice, string NqWorld, int HqPrice, string HqWorld, float Avg);
+        private Dictionary<int, FavPrice?> _favPrices = new();
+        private string _favPriceKey = "", _favPriceError = "";
+        private bool _favPricesLoading;
+        private DateTime? _favCheckedAt;
+        private int _favReq;
+
+        /// <summary>Fetches when the tab opens, the scope changes or the favourites change (or after Refresh).</summary>
+        private void EnsureFavPrices(IEnumerable<int> ids)
+        {
+            var list = ids.Distinct().OrderBy(i => i).ToList();
+            var scope = Scope;
+            var key = scope + "|" + string.Join(",", list);
+            if (key == _favPriceKey) return;
+            _favPriceKey = key;
+            int req = ++_favReq;
+            _favPricesLoading = true;
+            _favPriceError = "";
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                var next = new Dictionary<int, FavPrice?>();
+                string error = "";
+                try
+                {
+                    for (int i = 0; i < list.Count; i += 100)
+                    {
+                        var chunk = list.Skip(i).Take(100).ToList();
+                        var json = await _sender.Get($"/api/market/batch?world={HubClient.Q(scope)}&itemIds={string.Join(",", chunk)}", okOnly: false);
+                        if (string.IsNullOrEmpty(json)) { error = "Universalis did not answer."; break; }
+                        var tok = Newtonsoft.Json.Linq.JToken.Parse(json);
+                        if (tok["market"] is not Newtonsoft.Json.Linq.JObject market) { error = tok["error"]?.ToString() is { Length: > 0 } e ? e : "Universalis did not answer."; break; }
+                        foreach (var id in chunk)
+                        {
+                            var m = market[id.ToString()];
+                            var listings = (m?["listings"] as Newtonsoft.Json.Linq.JArray)?.ToObject<List<MarketListing>>();
+                            if (listings == null || listings.Count == 0) { next[id] = null; continue; }
+                            var nq = listings.Where(l => !l.hq).OrderBy(l => l.pricePerUnit).FirstOrDefault();
+                            var hq = listings.Where(l => l.hq).OrderBy(l => l.pricePerUnit).FirstOrDefault();
+                            float avg = m?["averagePrice"]?.ToObject<float?>() ?? 0;
+                            next[id] = new FavPrice(nq?.pricePerUnit ?? 0, nq?.worldName ?? "", hq?.pricePerUnit ?? 0, hq?.worldName ?? "", avg);
+                        }
+                    }
+                }
+                catch (Exception ex) { _log.Error(ex, "Favourite prices failed"); error = "The prices could not be read."; }
+                if (req != _favReq) return;
+                if (error.Length == 0) { _favPrices = next; _favCheckedAt = DateTime.Now; }
+                _favPriceError = error;
+                _favPricesLoading = false;
+            });
+        }
+
+        /// <summary>"NQ 72,746 Cerberus" / "HQ 65,470 Cerberus  avg 361,511", or a placeholder.</summary>
+        private void DrawFavPrice(int id, Vector2 pos, float width, float lineH)
+        {
+            var dl = Ui.Dl;
+            const float sc = 0.85f;
+            if (!_favPrices.TryGetValue(id, out var fp)) { Ui.Text(dl, pos, _favPricesLoading ? "Checking prices..." : "-", Theme.Text3, sc); return; }
+            if (fp == null) { Ui.Text(dl, pos, "No listings", Theme.Text3, sc); return; }
+            string avg = fp.Avg > 0 ? $"avg {Gil((long)fp.Avg)}" : "";
+            var rows = new List<(string q, int price, string world)>();
+            if (fp.NqPrice > 0) rows.Add(("NQ", fp.NqPrice, fp.NqWorld));
+            if (fp.HqPrice > 0) rows.Add(("HQ", fp.HqPrice, fp.HqWorld));
+            float right = pos.X + width;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                float x = pos.X, y = pos.Y + i * (lineH + S(3));
+                var parts = new List<(string t, Vector4 c)> { (rows[i].q, Theme.Text2), (Gil(rows[i].price), Theme.Gold), (rows[i].world, Theme.Text3) };
+                if (i == rows.Count - 1 && avg.Length > 0) parts.Add(("   " + avg, Theme.Text3));
+                foreach (var (t, c) in parts)
+                {
+                    if (t.Length == 0 || x >= right) continue;
+                    var f = Fit(t, right - x, sc);
+                    Ui.Text(dl, new Vector2(x, y), f, c, sc);
+                    x += Ui.TextSize(f + " ", sc).X;
+                }
+            }
+        }
+
         // =============================================================================================================
         private void DrawFavorites()
         {
@@ -294,7 +376,19 @@ namespace XIVHubCompanion.Apps
                     Empty(p, w, "No favourites yet. Press the star on an item to keep it here.", FontAwesomeIcon.Star);
                     Advance(p, EmptyH);
                 }
-                else foreach (var f in favs) ItemRow(f.id, f.name, f.icon, f.level, f.ilvl, f.canBeHq, w);
+                else
+                {
+                    EnsureFavPrices(favs.Select(f => f.id));
+                    // head: where the prices come from, when they were checked, refresh
+                    var dl = Ui.Dl;
+                    float hh = S(30);
+                    string info = _favPricesLoading ? "Checking prices..." : _favPriceError.Length > 0 ? _favPriceError
+                        : $"Lowest price on {ScopeShort(Scope)}{(_favCheckedAt.HasValue ? $"  ·  checked {_favCheckedAt.Value:HH:mm}" : "")}";
+                    Ui.Text(dl, p + new Vector2(0, (hh - LH) / 2), Fit(info, w - hh - S(10)), _favPriceError.Length > 0 ? Theme.Bad : Theme.Text2);
+                    if (Ui.IconButton("mk_favref", FontAwesomeIcon.Sync, p + new Vector2(w - hh, 0), hh, "Refresh prices") && !_favPricesLoading) _favPriceKey = "";
+                    Advance(p, hh + S(8));
+                    foreach (var f in favs) ItemRow(f.id, f.name, f.icon, f.level, f.ilvl, f.canBeHq, w, prices: true);
+                }
             }
             ImGui.EndChild();
         }
