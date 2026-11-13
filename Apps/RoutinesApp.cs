@@ -722,8 +722,6 @@ namespace XIVHubCompanion.Apps
                 }
                 ImGui.EndTable();
             }
-            
-            ImGui.EndChild();
         }
     }
 }
