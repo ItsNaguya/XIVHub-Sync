@@ -734,11 +734,11 @@ namespace XIVHubCompanion.Apps
                     }
                     
                     // Center Title
-                    ImGui.SetWindowFontScale(1.2f);
+                    var _fs1 = XIVHubCompanion.Tablet.Fonts.Scale(1.2f);
                     float titleWidth = ImGui.CalcTextSize(title).X;
                     if (titleWidth < availWidth) ImGui.SetCursorPosX((availWidth - titleWidth) * 0.5f);
                     ImGui.TextColored(Theme.Gold.With(alphaEv), title);
-                    ImGui.SetWindowFontScale(1.0f);
+                    _fs1.Dispose();
                     
                     ImGui.Separator();
                     

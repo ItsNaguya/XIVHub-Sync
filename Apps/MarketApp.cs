@@ -1820,9 +1820,9 @@ namespace XIVHubCompanion.Apps
             }
             
             ImGui.SetCursorScreenPos(new Vector2(p.X + 85, p.Y + 29));
-            ImGui.SetWindowFontScale(0.85f);
+            var _fs1 = XIVHubCompanion.Tablet.Fonts.Scale(0.85f);
             ImGui.TextColored(Theme.Text2, $"Retainer: {stop.retainer}");
-            ImGui.SetWindowFontScale(1.0f);
+            _fs1.Dispose();
 
             string buyText = $"Buy {stop.quantity} @ {stop.pricePerUnit:N0}";
             string totalText = $"{stop.total:N0} Gil";

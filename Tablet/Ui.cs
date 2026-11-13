@@ -50,10 +50,10 @@ namespace XIVHubCompanion.Tablet
         }
 
         // ---- text -------------------------------------------------------------------------------------------------
-        public static Vector2 TextSize(string text, float scale = 1f) => ImGui.CalcTextSize(text) * scale;
+        public static Vector2 TextSize(string text, float scale = 1f) => Fonts.Measure(text, scale);
 
         public static void Text(ImDrawListPtr dl, Vector2 pos, string text, Vector4 color, float scale = 1f)
-            => dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * scale, pos, color.U32(), text);
+            => Fonts.Text(dl, pos, text, color.U32(), scale);
 
         /// <summary>Gold small caps with letter spacing (website section headers).</summary>
         public static float Caps(ImDrawListPtr dl, Vector2 pos, string text, Vector4? color = null, float scale = 0.78f)
@@ -68,28 +68,13 @@ namespace XIVHubCompanion.Tablet
             return x - pos.X;
         }
 
-        public static Vector2 IconSize(FontAwesomeIcon icon, float scale = 1f)
-        {
-            ImGui.PushFont(UiBuilder.IconFont);
-            var size = ImGui.CalcTextSize(icon.ToIconString()) * scale;
-            ImGui.PopFont();
-            return size;
-        }
+        public static Vector2 IconSize(FontAwesomeIcon icon, float scale = 1f) => Fonts.Measure(icon.ToIconString(), scale, icon: true);
 
         public static void Icon(ImDrawListPtr dl, Vector2 pos, FontAwesomeIcon icon, Vector4 color, float scale = 1f)
-        {
-            ImGui.PushFont(UiBuilder.IconFont);
-            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * scale, pos, color.U32(), icon.ToIconString());
-            ImGui.PopFont();
-        }
+            => Fonts.Text(dl, pos, icon.ToIconString(), color.U32(), scale, icon: true);
 
         public static void IconCentered(ImDrawListPtr dl, Vector2 center, string glyph, Vector4 color, float scale = 1f)
-        {
-            ImGui.PushFont(UiBuilder.IconFont);
-            var size = ImGui.CalcTextSize(glyph) * scale;
-            dl.AddText(ImGui.GetFont(), ImGui.GetFontSize() * scale, center - size / 2, color.U32(), glyph);
-            ImGui.PopFont();
-        }
+            => Fonts.Text(dl, center - Fonts.Measure(glyph, scale, icon: true) / 2, glyph, color.U32(), scale, icon: true);
 
         public static void Tooltip(string text)
         {

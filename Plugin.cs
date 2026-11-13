@@ -84,6 +84,7 @@ namespace XIVHubCompanion
             foreach (var cmd in Commands)
                 _commandManager.AddHandler(cmd, new CommandInfo(OnCommand) { HelpMessage = "Opens Aetherhold.", ShowInHelp = cmd == Commands[0] });
 
+            Tablet.Fonts.Init(_pluginInterface.UiBuilder);
             _pluginInterface.UiBuilder.Draw += DrawUI;
             _pluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
             _pluginInterface.UiBuilder.OpenMainUi += DrawConfigUI;
@@ -152,6 +153,7 @@ namespace XIVHubCompanion
             _clientState.Login -= OnLogin;
             _sender.OnAuthRejected -= OnAuthRejected;
             _pluginInterface.UiBuilder.Draw -= DrawUI;
+            Tablet.Fonts.Dispose();
             _pluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
             _pluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
             foreach (var cmd in Commands) _commandManager.RemoveHandler(cmd);

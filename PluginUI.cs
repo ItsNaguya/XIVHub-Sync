@@ -456,8 +456,7 @@ namespace XIVHubCompanion
             ImGui.PushStyleColor(ImGuiCol.ChildBg, Vector4.Zero);
             if (UIHelper.BeginSmoothChild("AppScreen", cMax - cMin - new Vector2(pad.X * 2, headH + pad.Y * 2), false, flags))
             {
-                ImGui.SetWindowFontScale(1.05f * AppScale);
-                app.Draw();
+                using (Fonts.Scale(AppScale)) app.Draw(); // sharp font instead of stretching it
             }
             ImGui.EndChild();
             ImGui.PopStyleColor();

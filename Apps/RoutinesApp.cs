@@ -35,7 +35,7 @@ namespace XIVHubCompanion.Apps
         public void DrawSettings() 
         { 
             ImGui.BeginGroup();
-            ImGui.SetWindowFontScale(1.1f);
+            var _fs1 = XIVHubCompanion.Tablet.Fonts.Scale(1.1f);
             
             ImGui.Dummy(new Vector2(0, 10));
             ImGui.TextColored(Theme.Crystal, "Core Settings");
@@ -62,7 +62,7 @@ namespace XIVHubCompanion.Apps
             }
             ImGui.Unindent(20);
             
-            ImGui.SetWindowFontScale(1.0f);
+            _fs1.Dispose();
             ImGui.EndGroup();
         }
         public void Update() { }
@@ -297,9 +297,9 @@ namespace XIVHubCompanion.Apps
             ImGui.PopFont();
             
             ImGui.SameLine(0, 15);
-            ImGui.SetWindowFontScale(1.5f);
+            var _fs2 = XIVHubCompanion.Tablet.Fonts.Scale(1.5f);
             ImGui.TextColored(new Vector4(1f, 1f, 1f, 1f), _activeTab == "daily" ? "Daily Routines" : "Weekly Routines");
-            ImGui.SetWindowFontScale(1.0f);
+            _fs2.Dispose();
             
             ImGui.Spacing();
             ImGui.TextColored(Theme.Text2, "RESET IN:");
@@ -361,9 +361,9 @@ namespace XIVHubCompanion.Apps
             string fractionText = $"{completed}/{activeTasks.Count}";
             var fracSize = ImGui.CalcTextSize(fractionText);
             ImGui.SetCursorScreenPos(circleCenter - new Vector2(fracSize.X / 2, -(textSize.Y / 2 - 5)));
-            ImGui.SetWindowFontScale(0.8f);
+            var _fs3 = XIVHubCompanion.Tablet.Fonts.Scale(0.8f);
             ImGui.TextColored(Theme.Text2, fractionText);
-            ImGui.SetWindowFontScale(1.0f);
+            _fs3.Dispose();
 
             // Tab Toggles
             ImGui.SetCursorScreenPos(cursorStart + new Vector2(availWidth - 140, 25));
