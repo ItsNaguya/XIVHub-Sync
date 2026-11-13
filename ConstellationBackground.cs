@@ -33,6 +33,11 @@ namespace XIVHubCompanion
         private Vector2 _screenSize;
         private float _scanlineY = -100f;
 
+        public ConstellationBackground(int particles = 80, int streams = 30, float linkDistance = 150f)
+        {
+            _maxParticles = particles; _maxStreams = streams; _connectionDistance = linkDistance;
+        }
+
         public void Draw(Vector2 pos, Vector2 size, bool hideConstellation = false, bool hideScanline = false)
         {
             if (!_initialized || size != _screenSize)

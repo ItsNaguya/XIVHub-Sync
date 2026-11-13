@@ -31,6 +31,7 @@ namespace XIVHubCompanion
         private readonly SettingsApp _settingsApp;
         private readonly HomeScreen _home;
         private readonly ConstellationBackground _constellation = new();
+        private readonly ConstellationBackground _constellationPreview = new(16, 4, 45f); // own state: one instance at two sizes re-seeds every frame
         private IApp? _openApp; // null = home screen
 
         private bool settingsVisible;
@@ -204,9 +205,9 @@ namespace XIVHubCompanion
 
                 var sMin = win + Ui.S(Bezel, Bezel);
                 var sMax = win + size - Ui.S(Bezel, Bezel);
-                dl.PushClipRect(sMin, sMax, true);
+                ImGui.PushClipRect(sMin, sMax, true); // ImGui's own clip: the constellation pops it, a draw-list clip would leak
                 DrawWallpaper(dl, sMin, sMax);
-                dl.PopClipRect();
+                ImGui.PopClipRect();
 
                 var cMin = sMin + new Vector2(0, Ui.S(StatusH));
                 var cMax = sMax - new Vector2(0, Ui.S(DockH));
@@ -261,7 +262,7 @@ namespace XIVHubCompanion
 
         public static readonly (string Id, string Label)[] Wallpapers = { ("constellation", "Constellation"), ("crystal", "Crystal"), ("night", "Night"), ("dusk", "Dusk") };
 
-        public void DrawWallpaper(ImDrawListPtr dl, Vector2 a, Vector2 b)
+        public void DrawWallpaper(ImDrawListPtr dl, Vector2 a, Vector2 b, bool preview = false)
         {
             uint top, bottom;
             switch (configuration.TabletWallpaper)
@@ -282,7 +283,7 @@ namespace XIVHubCompanion
                     Glow(dl, a + new Vector2(size.X * 0.5f, size.Y * 1.05f), size.Y * 0.8f, Theme.Gold, 0.08f);
                     break;
                 case "constellation":
-                    _constellation.Draw(a, size, configuration.HideBackgroundAnimation, configuration.HideScanline);
+                    (preview ? _constellationPreview : _constellation).Draw(a, size, configuration.HideBackgroundAnimation, preview || configuration.HideScanline);
                     break;
             }
         }

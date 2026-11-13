@@ -53,9 +53,9 @@ namespace XIVHubCompanion
                     bool click = Ui.Hit("wp_" + id, p, new Vector2(tw, th + Ui.S(22)), out float hv);
                     var saved = configuration.TabletWallpaper;
                     configuration.TabletWallpaper = id;
-                    dl.PushClipRect(p, p + new Vector2(tw, th), true);
-                    DrawWallpaper(dl, p, p + new Vector2(tw, th));
-                    dl.PopClipRect();
+                    ImGui.PushClipRect(p, p + new Vector2(tw, th), true);
+                    DrawWallpaper(dl, p, p + new Vector2(tw, th), preview: true);
+                    ImGui.PopClipRect();
                     configuration.TabletWallpaper = saved;
                     dl.AddRect(p, p + new Vector2(tw, th), (sel ? Ui.Accent : Theme.CrystalLine.With(0.22f + 0.4f * hv)).U32(), Ui.S(6), 0, Ui.S(sel ? 2 : 1));
                     Ui.Text(dl, p + new Vector2(0, th + Ui.S(4)), label, sel ? Ui.Accent : Theme.Text2, 0.85f);
