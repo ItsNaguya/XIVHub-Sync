@@ -273,10 +273,20 @@ namespace XIVHubCompanion
             var caught = new List<uint>();
             var ps = PlayerState.Instance();
             if (ps == null) return caught;
-            foreach (var fish in _dataManager.GetExcelSheet<FishParameter>())
-                if (fish.Item.RowId != 0 && fish.IsInLog && ps->IsFishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
-            foreach (var fish in _dataManager.GetExcelSheet<SpearfishingItem>())
-                if (fish.Item.RowId != 0 && ps->IsSpearfishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
+            // Rows run in ascending id order; the sheets hold a few ids past the game's caught-bits table
+            // (ArgumentOutOfRange), so the first row that throws ends that sheet instead of the whole sync.
+            try
+            {
+                foreach (var fish in _dataManager.GetExcelSheet<FishParameter>())
+                    if (fish.Item.RowId != 0 && fish.IsInLog && ps->IsFishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
+            }
+            catch (ArgumentOutOfRangeException) { }
+            try
+            {
+                foreach (var fish in _dataManager.GetExcelSheet<SpearfishingItem>())
+                    if (fish.Item.RowId != 0 && ps->IsSpearfishCaught(fish.RowId)) caught.Add(fish.Item.RowId);
+            }
+            catch (ArgumentOutOfRangeException) { }
             return caught;
         }
 

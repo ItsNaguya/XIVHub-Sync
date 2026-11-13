@@ -254,6 +254,7 @@ namespace XIVHubCompanion
         {
             ImGui.SetCursorScreenPos(pos);
             ImGui.InvisibleButton(id, size);
+            ImGui.SetItemAllowOverlap(); // buttons drawn on top of a drag area (sleep view) must still get the click
             if (ImGui.IsItemActive() && ImGui.IsMouseDragging(ImGuiMouseButton.Left)) ImGui.SetWindowPos(ImGui.GetWindowPos() + ImGui.GetIO().MouseDelta);
             if (ImGui.IsItemHovered()) ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeAll);
         }
@@ -608,6 +609,7 @@ namespace XIVHubCompanion
                 dl.AddRect(p, p + size, Theme.Text3.With(0.45f).U32(), 18, 0, 1.8f);
                 dl.AddRect(p + new Vector2(5, 5), p + size - new Vector2(5, 5), Theme.CrystalLine.U32(), 14, 0, 1);
                 DragArea("sleep_drag", p, size);
+                if (ImGui.IsItemHovered() && ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Left)) { configuration.IsMinimized = false; configuration.Save(); }
 
                 DrawMark(dl, p + new Vector2(14, 18), 28);
                 var et = EorzeaTimeHelper.GetEorzeaTime();
@@ -622,7 +624,7 @@ namespace XIVHubCompanion
                     bool all = ReturnedRetainersCount == ActiveRetainersCount;
                     var col = all ? Theme.Gold.With(0.6f + 0.4f * (float)((Math.Sin(ImGui.GetTime() * 5) + 1) / 2)) : Theme.Text2;
                     Ui.Icon(dl, new Vector2(x, y + 1), FontAwesomeIcon.Briefcase, col, 0.75f);
-                    var t = all ? "back" : $"{ReturnedRetainersCount}/{ActiveRetainersCount} {Ui.Span(TimeSpan.FromSeconds(ShortestRetainerVentureTime))}";
+                    var t = all ? $"{ActiveRetainersCount}/{ActiveRetainersCount} back" : $"{ReturnedRetainersCount}/{ActiveRetainersCount} {Ui.Span(TimeSpan.FromSeconds(ShortestRetainerVentureTime))}";
                     Ui.Text(dl, new Vector2(x + 16, y), t, col, 0.82f);
                     x += 22 + Ui.TextSize(t, 0.82f).X;
                 }
